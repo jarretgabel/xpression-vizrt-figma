@@ -32,6 +32,33 @@ type DeliveryChecklistItem = {
   status: ChecklistStatus;
 };
 
+function fontChecklistDetail(fontAudit: FontAuditItem[], targetLabel: string) {
+  const issues = fontAudit.flatMap((item) => {
+    const itemIssues: string[] = [];
+    if (item.family === 'Unknown') {
+      itemIssues.push('some layers are missing font family metadata');
+    }
+    if (item.availableInBrowser === false) {
+      itemIssues.push(`${item.family} is not detected in the current browser environment`);
+    }
+    if (item.mixedStyleLayers > 0) {
+      itemIssues.push(`${item.family} has mixed-style text layers`);
+    }
+    if (item.postScriptNames.length === 0) {
+      itemIssues.push(`${item.family} is missing a PostScript name`);
+    }
+    return itemIssues;
+  });
+
+  if (issues.length === 0) {
+    return `No browser-side font risks were detected for the current ${targetLabel.toLowerCase()} target.`;
+  }
+
+  const summary = issues.slice(0, 3).join('; ');
+  const remainder = issues.length > 3 ? `; plus ${issues.length - 3} more font issue${issues.length - 3 === 1 ? '' : 's'}` : '';
+  return `${summary}${remainder}. Verify these fonts in the target system before delivery.`;
+}
+
 function previewAssetUrl(path: string) {
   return path.replace(/^\//, '');
 }
@@ -77,8 +104,8 @@ function buildDeliveryChecklist({
       {
         title: 'Confirm fonts in XPression',
         detail: hasFontRisk
-          ? 'One or more source fonts are missing or risky in the browser audit and should be verified in the target system.'
-          : 'No browser-side font risks were detected for the current source.',
+          ? fontChecklistDetail(fontAudit, 'XPression')
+          : 'No browser-side font risks were detected for the current XPression target.',
         status: hasFontRisk ? 'attention' : 'ready',
       },
       {
@@ -108,8 +135,8 @@ function buildDeliveryChecklist({
       {
         title: 'Confirm fonts in XPression',
         detail: hasFontRisk
-          ? 'Audit risky fonts before building the native scene.'
-          : 'No browser-side font risks were detected for the current source.',
+          ? fontChecklistDetail(fontAudit, 'XPression')
+          : 'No browser-side font risks were detected for the current XPression target.',
         status: hasFontRisk ? 'attention' : 'ready',
       },
       {
