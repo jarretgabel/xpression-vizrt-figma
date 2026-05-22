@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import { convertFigmaJsonToSvg, preferredFontFamilyForStyle } from '../lib/convert-figma-json-to-svg.mjs';
+import bentonSansBlackTtfUrl from './assets/fonts/bentonsansblack.ttf?url';
+import bentonSansBlackWoffUrl from './assets/fonts/bentonsansblack.woff?url';
+import bentonSansBlackWoff2Url from './assets/fonts/bentonsansblack.woff2?url';
+import bentonSansBookTtfUrl from './assets/fonts/bentonsansbook.ttf?url';
+import bentonSansBookWoffUrl from './assets/fonts/bentonsansbook.woff?url';
+import bentonSansCondBoldTtfUrl from './assets/fonts/bentonsanscondbold.ttf?url';
+import bentonSansCondBookTtfUrl from './assets/fonts/bentonsanscondbook.ttf?url';
+import bentonSansCondBookWoffUrl from './assets/fonts/bentonsanscondbook.woff?url';
+import bentonSansCondMediumTtfUrl from './assets/fonts/bentonsanscondmedium.ttf?url';
+import bentonSansCondTtfUrl from './assets/fonts/bentonsanscond.ttf?url';
+import bentonSansLightTtfUrl from './assets/fonts/bentonsanslight.ttf?url';
+import bentonSansThinTtfUrl from './assets/fonts/bentonsansthin.ttf?url';
+import bentonSansThinWoffUrl from './assets/fonts/bentonsansthin.woff?url';
 import {
   buildRemoteImageAssets,
   extractFigmaIdentifiers,
@@ -57,10 +70,6 @@ function fontChecklistDetail(fontAudit: FontAuditItem[], targetLabel: string) {
   const summary = issues.slice(0, 3).join('; ');
   const remainder = issues.length > 3 ? `; plus ${issues.length - 3} more font issue${issues.length - 3 === 1 ? '' : 's'}` : '';
   return `${summary}${remainder}. Verify these fonts in the target system before delivery.`;
-}
-
-function previewAssetUrl(path: string) {
-  return path.replace(/^\//, '');
 }
 
 function readFigmaUrlFromDeepLink(search: string) {
@@ -328,20 +337,6 @@ async function measureFontBaselineMetrics(source: FigmaSource) {
 }
 
 function buildPreviewDocument(svg: string) {
-  const bentonSansBookWoff = previewAssetUrl('/fonts/bentonsansbook.woff');
-  const bentonSansBookTtf = previewAssetUrl('/fonts/bentonsansbook.ttf');
-  const bentonSansLightTtf = previewAssetUrl('/fonts/bentonsanslight.ttf');
-  const bentonSansThinWoff = previewAssetUrl('/fonts/bentonsansthin.woff');
-  const bentonSansThinTtf = previewAssetUrl('/fonts/bentonsansthin.ttf');
-  const bentonSansBlackWoff2 = previewAssetUrl('/fonts/bentonsansblack.woff2');
-  const bentonSansBlackWoff = previewAssetUrl('/fonts/bentonsansblack.woff');
-  const bentonSansBlackTtf = previewAssetUrl('/fonts/bentonsansblack.ttf');
-  const bentonSansCondTtf = previewAssetUrl('/fonts/bentonsanscond.ttf');
-  const bentonSansCondBookWoff = previewAssetUrl('/fonts/bentonsanscondbook.woff');
-  const bentonSansCondBookTtf = previewAssetUrl('/fonts/bentonsanscondbook.ttf');
-  const bentonSansCondMediumTtf = previewAssetUrl('/fonts/bentonsanscondmedium.ttf');
-  const bentonSansCondBoldTtf = previewAssetUrl('/fonts/bentonsanscondbold.ttf');
-
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -353,61 +348,61 @@ function buildPreviewDocument(svg: string) {
     <style>
       @font-face {
         font-family: 'BentonSansBook';
-         src: url('${bentonSansBookWoff}') format('woff'),
-           url('${bentonSansBookTtf}') format('truetype');
+         src: url('${bentonSansBookWoffUrl}') format('woff'),
+           url('${bentonSansBookTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansLight';
-        src: url('${bentonSansLightTtf}') format('truetype');
+        src: url('${bentonSansLightTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansThin';
-         src: url('${bentonSansThinWoff}') format('woff'),
-           url('${bentonSansThinTtf}') format('truetype');
+         src: url('${bentonSansThinWoffUrl}') format('woff'),
+           url('${bentonSansThinTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansBlack';
-         src: url('${bentonSansBlackWoff2}') format('woff2'),
-           url('${bentonSansBlackWoff}') format('woff'),
-           url('${bentonSansBlackTtf}') format('truetype');
+         src: url('${bentonSansBlackWoff2Url}') format('woff2'),
+           url('${bentonSansBlackWoffUrl}') format('woff'),
+           url('${bentonSansBlackTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansCond';
-        src: url('${bentonSansCondTtf}') format('truetype');
+        src: url('${bentonSansCondTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansCondBook';
-         src: url('${bentonSansCondBookWoff}') format('woff'),
-           url('${bentonSansCondBookTtf}') format('truetype');
+         src: url('${bentonSansCondBookWoffUrl}') format('woff'),
+           url('${bentonSansCondBookTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansCondMedium';
-        src: url('${bentonSansCondMediumTtf}') format('truetype');
+        src: url('${bentonSansCondMediumTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
 
       @font-face {
         font-family: 'BentonSansCondBold';
-        src: url('${bentonSansCondBoldTtf}') format('truetype');
+        src: url('${bentonSansCondBoldTtfUrl}') format('truetype');
         font-weight: normal;
         font-style: normal;
       }
