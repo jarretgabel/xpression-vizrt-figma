@@ -1007,7 +1007,6 @@ function App() {
       <main className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5">
         <section className="rounded-[18px] border border-espn-border bg-white px-4 py-3 shadow-panel">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-espn-muted">Figma to XPression</p>
             <h1 className="mt-1 text-xl font-semibold leading-tight tracking-[-0.03em] text-espn-slate sm:text-2xl">
               Live graphics prep for XPression & Vizrt
             </h1>

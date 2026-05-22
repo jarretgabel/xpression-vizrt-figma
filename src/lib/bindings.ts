@@ -50,12 +50,16 @@ function nodeBox(node: FigmaNode) {
   return node.absoluteBoundingBox || node.absoluteRenderBounds;
 }
 
+function isSupportedGradientPaintType(type?: string) {
+  return type === 'GRADIENT_LINEAR' || type === 'GRADIENT_RADIAL' || type === 'GRADIENT_DIAMOND';
+}
+
 function visibleSolidOrGradientPaint(node: FigmaNode) {
   return (node.fills || []).find((fill) => {
     if (fill.visible === false) {
       return false;
     }
-    return fill.type === 'SOLID' || fill.type === 'GRADIENT_LINEAR';
+    return fill.type === 'SOLID' || isSupportedGradientPaintType(fill.type);
   });
 }
 
@@ -77,7 +81,7 @@ function colorValueFor(node: FigmaNode) {
     return rgbaToHex(paint.color, paint.opacity ?? paint.color.a);
   }
 
-  if (paint.type === 'GRADIENT_LINEAR' && paint.gradientStops) {
+  if (isSupportedGradientPaintType(paint.type) && paint.gradientStops) {
     return paint.gradientStops
       .map((stop) => `${Math.round(stop.position * 100)}%:${rgbaToHex(stop.color || {}, stop.color?.a)}`)
       .join('|');

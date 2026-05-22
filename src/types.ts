@@ -11,6 +11,10 @@ export type FigmaPaint = {
   type?: string;
   visible?: boolean;
   imageRef?: string;
+  gradientHandlePositions?: Array<{
+    x: number;
+    y: number;
+  }>;
   color?: {
     r?: number;
     g?: number;
