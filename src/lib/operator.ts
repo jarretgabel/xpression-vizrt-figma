@@ -215,12 +215,18 @@ function applyTextFlowLayout(svgRoot: Element, manifest: DynamicBindingsManifest
     const nextGap = item.flowKind === 'attached'
       ? Math.max(1, item.flowGap ?? measuredSpaceWidth * 0.4)
       : Math.max(1, item.flowGap ?? measuredSpaceWidth);
-    const nextX = previousX + previousWidth + nextGap;
+    const previousOriginalX = textElementX(previousElement, previousItem.x);
+    const currentOriginalX = textElementX(currentElement, item.x);
+    const previousHasTransform = Boolean(previousElement.getAttribute('transform'));
+    const currentHasTransform = Boolean(currentElement.getAttribute('transform'));
+    const nextX = previousHasTransform || currentHasTransform
+      ? previousX + (currentOriginalX - previousOriginalX)
+      : previousX + previousWidth + nextGap;
     setTextX(currentElement, nextX);
 
+    const previousY = textElementY(previousElement, previousItem.y);
     const previousOriginalY = textElementY(previousElement, previousItem.y);
     const currentOriginalY = textElementY(currentElement, item.y);
-    const previousY = textElementY(previousElement, previousItem.y);
     const baselineDelta = currentOriginalY - previousOriginalY;
     const nextY = previousY + baselineDelta;
     setTextY(currentElement, nextY);
