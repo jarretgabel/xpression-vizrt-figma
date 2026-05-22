@@ -2,6 +2,14 @@ import type { DynamicBindingsManifest, DynamicBindingItem } from '../types';
 
 export type OperatorValues = Record<string, string>;
 
+type SvgBindingMetadata = {
+  tagName: string;
+  fill: string | null;
+  stroke: string | null;
+  hasInnerShadow: boolean;
+  hasLayerBlur: boolean;
+};
+
 function normalizeHexColor(value: string) {
   const trimmed = value.trim();
   return /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed) ? trimmed : null;
@@ -404,6 +412,149 @@ function innerShadowTemplateLines(svg: string | null) {
         return `SetInnerShadow("${svgId}", ${dx}, ${dy}, ${radius}, "${color}", ${opacity}); // preserve Figma inner shadow`;
       });
     });
+}
+
+function bindingMetadataByFieldKey(manifest: DynamicBindingsManifest, svg: string | null) {
+  if (!svg) {
+    return new Map<string, SvgBindingMetadata>();
+  }
+
+  const parser = new DOMParser();
+  const documentRef = parser.parseFromString(svg, 'image/svg+xml');
+  const metadata = new Map<string, SvgBindingMetadata>();
+
+  manifest.items.forEach((item) => {
+    const element = documentRef.querySelector(`[data-binding-key="${item.fieldKey}"]`);
+    if (!element) {
+      return;
+    }
+
+    metadata.set(item.fieldKey, {
+      tagName: element.tagName.toLowerCase(),
+      fill: element.getAttribute('fill'),
+      stroke: element.getAttribute('stroke'),
+      hasInnerShadow: element.hasAttribute('data-effect-inner-shadow') || Boolean(element.closest('[data-effect-inner-shadow]')),
+      hasLayerBlur: element.hasAttribute('data-effect-layer-blur') || Boolean(element.closest('[data-effect-layer-blur]')),
+    });
+  });
+
+  return metadata;
+}
+
+function formatBounds(item: DynamicBindingItem) {
+  const x = Number(item.x ?? 0).toFixed(2);
+  const y = Number(item.y ?? 0).toFixed(2);
+  const width = Number(item.width ?? 0).toFixed(2);
+  const height = Number(item.height ?? 0).toFixed(2);
+  return `{ x: ${x}, y: ${y}, width: ${width}, height: ${height} }`;
+}
+
+function quotedOrNull(value: string | undefined | null) {
+  return value ? JSON.stringify(value) : 'null';
+}
+
+function primitiveObjectLine(item: DynamicBindingItem, value: string, metadata?: SvgBindingMetadata) {
+  if (item.bindingType === 'text') {
+    return [
+      `EnsureTextObject(${JSON.stringify(item.fieldKey)}, ${formatBounds(item)}, {`,
+      `  sourceId: ${JSON.stringify(item.svgId)},`,
+      `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+      `  fontFamily: ${quotedOrNull(item.fontFamily)},`,
+      `  postScriptName: ${quotedOrNull(item.fontPostScriptName)},`,
+      `  textCase: ${quotedOrNull(item.textCase)},`,
+      `  align: ${quotedOrNull(item.textAlignHorizontal)},`,
+      `  sample: ${JSON.stringify(value || item.textSample || '')},`,
+      `});`,
+      `BindText(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+    ].join('\n');
+  }
+
+  if (item.bindingType === 'image') {
+    return [
+      `EnsureImageObject(${JSON.stringify(item.fieldKey)}, ${formatBounds(item)}, {`,
+      `  sourceId: ${JSON.stringify(item.svgId)},`,
+      `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+      `  sample: ${JSON.stringify(value || item.imageRef || '')},`,
+      `});`,
+      `BindImage(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+    ].join('\n');
+  }
+
+  const primitiveKind = metadata?.fill?.startsWith('url(#') ? 'slab' : metadata?.tagName === 'path' ? 'path-primitive' : 'rectangle';
+  return [
+    `EnsurePrimitiveObject(${JSON.stringify(item.fieldKey)}, ${JSON.stringify(primitiveKind)}, ${formatBounds(item)}, {`,
+    `  sourceId: ${JSON.stringify(item.svgId)},`,
+    `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+    `  fill: ${quotedOrNull(metadata?.fill || item.colorValue || null)},`,
+    `  stroke: ${quotedOrNull(metadata?.stroke)},`,
+    `});`,
+    `BindFill(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+  ].join('\n');
+}
+
+export function buildXpressionPrimitivePlan(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
+  if (!manifest) {
+    return 'No native XPression primitives plan yet.';
+  }
+
+  const dataLines = manifest.items.map((item) => `  ${item.fieldKey}: ${JSON.stringify(values[item.fieldKey] ?? '')},`);
+  const metadataByFieldKey = bindingMetadataByFieldKey(manifest, svg || null);
+  const primitiveLines = manifest.items.flatMap((item) => {
+    const lines = [primitiveObjectLine(item, values[item.fieldKey] ?? '', metadataByFieldKey.get(item.fieldKey))];
+    const flowLine = flowTemplateLine(item, manifest);
+    if (flowLine && item.bindingType === 'text') {
+      lines.push(`// Native scene flow: ${flowLine}`);
+    }
+    return lines;
+  });
+
+  const effectNotes = manifest.items.flatMap((item) => {
+    const metadata = metadataByFieldKey.get(item.fieldKey);
+    if (!metadata) {
+      return [];
+    }
+
+    const notes = [];
+    if (metadata.hasInnerShadow) {
+      notes.push(`ApplyNativeInnerShadow(${JSON.stringify(item.fieldKey)}); // recreate Figma inner shadow with XPression material/effect stack`);
+    }
+    if (metadata.hasLayerBlur) {
+      notes.push(`ApplyNativeBlur(${JSON.stringify(item.fieldKey)}); // use native blur/glow instead of SVG filter import`);
+    }
+    return notes;
+  });
+
+  return [
+    '// XPression native primitives/slabs plan',
+    '// Alternative path: rebuild the scene natively in XPression with slabs, text objects, images, masks, and materials.',
+    '// Keep using the SVG import template when you want to preserve the current SVG-based handoff.',
+    '',
+    'const banner = {',
+    ...dataLines,
+    '};',
+    '',
+    '// Scene scaffolding',
+    'CreateScene("Banner");',
+    'CreateGroup("Root");',
+    '',
+    ...primitiveLines,
+    ...(effectNotes.length > 0 ? ['', '// Native effect recreation', ...effectNotes] : []),
+    '',
+    '// Recommended XPression-native build notes',
+    '// - Use slabs/rectangles for panel fills and gradient carriers.',
+    '// - Use native text objects for editable copy and line flow.',
+    '// - Use image objects or material slots for logos/photos.',
+    '// - Recreate glows, inner shadows, and blur with native materials/effects rather than imported SVG filters.',
+  ].join('\n');
+}
+
+export function buildXpressionDataPayload(manifest: DynamicBindingsManifest | null, values: OperatorValues) {
+  if (!manifest) {
+    return '{\n  "banner": {}\n}';
+  }
+
+  const banner = Object.fromEntries(manifest.items.map((item) => [item.fieldKey, values[item.fieldKey] ?? '']));
+  return JSON.stringify({ banner }, null, 2);
 }
 
 export function buildXpressionTemplate(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {

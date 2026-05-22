@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { convertFigmaJsonToSvg, preferredFontFamilyForStyle } from '../lib/convert-figma-json-to-svg.mjs';
 import {
   buildRemoteImageAssets,
@@ -11,10 +11,10 @@ import {
 import { auditFonts } from './lib/audit';
 import { buildDynamicBindingsManifest } from './lib/bindings';
 import { parseFontSubstitutionEnv } from './lib/fonts';
-import { applyBindingsToSvg, buildInitialOperatorValues, buildXpressionTemplate } from './lib/operator';
+import { applyBindingsToSvg, buildInitialOperatorValues, buildXpressionDataPayload, buildXpressionPrimitivePlan, buildXpressionTemplate } from './lib/operator';
 import { preprocessFigmaSource, summarizePreprocess } from './lib/preprocess';
 import { buildPrepChecklist, summarizeRisks } from './lib/xpression';
-import type { ConverterWarnings, DynamicBindingsManifest, FigmaNode, FigmaSource, FontAuditItem, MissingImageWarning, XpressionPrepItem } from './types';
+import type { ConverterWarnings, DynamicBindingsManifest, FigmaNode, FigmaSource, FontAuditItem, XpressionPrepItem } from './types';
 
 const defaultToken = import.meta.env.VITE_FIGMA_TOKEN?.trim() ?? '';
 const fontSubstitutions = parseFontSubstitutionEnv(import.meta.env.VITE_FONT_SUBSTITUTIONS);
@@ -435,18 +435,14 @@ function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [figmaPreviewSvg, setFigmaPreviewSvg] = useState('');
   const [figmaPreviewUrl, setFigmaPreviewUrl] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isFigmaPreviewVisible, setIsFigmaPreviewVisible] = useState(false);
-  const [isExportsMenuOpen, setIsExportsMenuOpen] = useState(false);
-  const [activeSidebarPanel, setActiveSidebarPanel] = useState<'controls' | 'readiness' | 'bindings' | 'fonts' | 'prep' | null>('readiness');
-  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | 'template' | null>(null);
+  const [activeInspectorTab, setActiveInspectorTab] = useState<'readiness' | 'bindings' | 'fonts' | 'prep'>('readiness');
+  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | 'template' | 'native'>('native');
 
   const customizedSvg = useMemo(() => applyBindingsToSvg(currentSvg, currentBindingsManifest, operatorValues), [currentSvg, currentBindingsManifest, operatorValues]);
+  const xpressionDataPayload = useMemo(() => buildXpressionDataPayload(currentBindingsManifest, operatorValues), [currentBindingsManifest, operatorValues]);
   const xpressionTemplate = useMemo(() => buildXpressionTemplate(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
-  const textBindingItems = useMemo(
-    () => (currentBindingsManifest?.items || []).filter((item) => item.bindingType === 'text'),
-    [currentBindingsManifest],
-  );
+  const xpressionPrimitivePlan = useMemo(() => buildXpressionPrimitivePlan(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
   const hasPreview = Boolean(currentSvg);
   const hasMeaningfulStatus = Boolean(status) && !status.startsWith('Waiting for a Figma URL');
 
@@ -498,18 +494,6 @@ function App() {
     };
   }, [figmaPreviewSvg]);
 
-  useEffect(() => {
-    if (!hasPreview && activeSidebarPanel === 'controls') {
-      setActiveSidebarPanel('readiness');
-    }
-  }, [activeSidebarPanel, hasPreview]);
-
-  useEffect(() => {
-    if (!hasPreview) {
-      setIsExportsMenuOpen(false);
-    }
-  }, [hasPreview]);
-
   async function buildPreviewFromSource(source: FigmaSource, sourceLabel: string, fileKey: string, nodeIds: string) {
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
@@ -527,6 +511,9 @@ function App() {
       textMetrics,
     });
     const nextFontAudit = auditFonts(preparedSource, result.warnings);
+    const missingManifest = JSON.stringify({
+      imageRefs: Object.fromEntries(imageSummary.unresolvedImageRefs.map((imageRef) => [imageRef, ''])),
+    }, null, 2);
     const operatorReport = [
       'Preprocess summary:',
       ...summarizePreprocess(preprocessSummary).map((line) => `- ${line}`),
@@ -538,13 +525,13 @@ function App() {
       '',
       'Font audit summary:',
       ...(nextFontAudit.length > 0
-        ? nextFontAudit.map((font) => `- ${font.family}: ${font.usageCount} layer(s), browser=${font.availableInBrowser === null ? 'unknown' : font.availableInBrowser ? 'available' : 'missing'}, risk=${font.risk}`)
-        : ['- No text layers detected']),
+        ? nextFontAudit.map((font) => `- ${font.family}: ${font.usageCount} layer(s), browser=${font.availableInBrowser === null ? 'unknown' : font.availableInBrowser ? 'available' : 'missing'}, risk=${font.risk}${font.postScriptNames.length > 0 ? `, postScript=${font.postScriptNames.join('/')}` : ''}`)
+        : ['- No font usage detected']),
       '',
       'Dynamic bindings summary:',
       ...(bindingsManifest.items.length > 0
-        ? bindingsManifest.items.map((item) => `- ${item.fieldKey}: ${item.bindingType} -> ${item.nodeName} (${item.svgId})${item.colorValue ? ` value=${item.colorValue}` : ''}`)
-        : ['- No dynamic text or image candidates detected']),
+        ? bindingsManifest.items.map((item) => `- ${item.fieldKey}: ${item.bindingType} -> ${item.nodeName} (${item.svgId})${item.bindingType === 'color' && item.colorValue ? ` value=${item.colorValue}` : ''}`)
+        : ['- No dynamic bindings detected']),
       '',
       'Binding naming validation:',
       ...(bindingsManifest.validationIssues.length > 0
@@ -554,14 +541,13 @@ function App() {
       result.report,
     ].join('\n');
 
-    const nextStatus =
-      imageSummary.unresolvedImageRefs.length > 0 || result.warnings.missingImages.length > 0
-        ? 'Preview generated. Some remote image fills were not resolved; review the report before import.'
-        : 'Preview generated. Review compatibility notes before importing into XPression.';
+    if (previewRequestIdRef.current !== requestId) {
+      return;
+    }
 
     setCurrentSvg(result.svg);
-    setFigmaPreviewSvg('');
     setCurrentReport(operatorReport);
+    setCurrentMissingManifest(missingManifest);
     setCurrentNormalizedJson(JSON.stringify(preparedSource, null, 2));
     setCurrentBindingsManifest(bindingsManifest);
     setOperatorValues(buildInitialOperatorValues(bindingsManifest));
@@ -569,32 +555,26 @@ function App() {
     setFontAudit(nextFontAudit);
     setImageRefs(imageSummary.detectedImageRefs);
     setPrepChecklist(buildPrepChecklist(preparedSource, result.warnings));
-    setCurrentMissingManifest(JSON.stringify({
-      imageRefs: result.warnings.missingImages.reduce<Record<string, string>>((accumulator: Record<string, string>, image: MissingImageWarning) => {
-        accumulator[image.imageRef] = `${image.imageRef}.png`;
-        return accumulator;
-      }, {}),
-    }, null, 2));
-    setStatus(nextStatus);
+    setStatus(
+      imageSummary.unresolvedImageRefs.length > 0
+        ? 'Preview generated. Some remote image fills were not resolved; review the report before import.'
+        : 'Preview generated. Review compatibility notes before importing into XPression.',
+    );
 
+    setFigmaPreviewSvg('');
     void (async () => {
       try {
-        const nextFigmaPreviewSvg = await Promise.race<string>([
-          fetchFigmaRenderedSvg({
-            token: defaultToken,
-            fileKey,
-            nodeIds,
-          }),
-          new Promise<string>((_, reject) => {
-            window.setTimeout(() => reject(new Error('Timed out fetching Figma SVG reference preview.')), 12000);
-          }),
-        ]);
+        const renderedSvg = await fetchFigmaRenderedSvg({
+          token: defaultToken,
+          fileKey,
+          nodeIds,
+        });
 
         if (previewRequestIdRef.current !== requestId) {
           return;
         }
 
-        setFigmaPreviewSvg(nextFigmaPreviewSvg);
+        setFigmaPreviewSvg(renderedSvg);
       } catch {
         if (previewRequestIdRef.current !== requestId) {
           return;
@@ -663,7 +643,7 @@ function App() {
             <h1 className="mt-1 text-xl font-semibold leading-tight tracking-[-0.03em] text-espn-slate sm:text-2xl">
               Live graphics prep for XPression
             </h1>
-            <p className="mt-1 text-xs text-espn-muted">Load a Figma node, preview it, then adjust live fields without leaving the page.</p>
+            <p className="mt-1 text-xs text-espn-muted">Load a Figma node, preview it, then choose between an SVG import handoff or a native XPression primitives/slabs build guide.</p>
           </div>
         </section>
 
@@ -689,309 +669,241 @@ function App() {
 
         </section>
 
-        <section className={`grid gap-3 ${isSidebarOpen ? 'xl:grid-cols-[minmax(0,1.7fr)_360px]' : ''}`}>
+        <section className="grid gap-3">
           <div className="space-y-3">
             <section className="rounded-[18px] border border-espn-border bg-white p-4 shadow-panel">
-            <div className="flex items-baseline justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-espn-slate">Preview</h2>
-                <span className="text-xs text-espn-muted">
-                  {imageRefs.length > 0 ? `${imageRefs.length} image ref${imageRefs.length === 1 ? '' : 's'} detected` : 'No output yet'}
-                </span>
+              <div className="flex items-baseline justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-espn-slate">Preview</h2>
+                  <span className="text-xs text-espn-muted">
+                    {imageRefs.length > 0 ? `${imageRefs.length} image ref${imageRefs.length === 1 ? '' : 's'} detected` : 'No output yet'}
+                  </span>
+                </div>
+                {hasPreview ? <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-muted">Workflow tabs below</p> : null}
               </div>
-              <button
-                type="button"
-                onClick={() => setIsSidebarOpen((current) => !current)}
-                className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
-              >
-                {isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
-              </button>
-            </div>
 
-            {hasPreview ? (
-              <div className="mt-3 flex flex-wrap gap-1.5 border-b border-espn-border pb-3">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsExportsMenuOpen((current) => !current)}
-                    className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
-                  >
-                    Exports
-                  </button>
-                  {isExportsMenuOpen ? (
-                    <div className="absolute left-0 top-full z-10 mt-1 min-w-[240px] overflow-hidden rounded-xl border border-espn-border bg-white shadow-panel">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          downloadText(currentReport, `${downloadBaseName}-xpression.report.txt`, 'text/plain');
-                          setIsExportsMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                      >
-                        Download Report
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          downloadText(currentNormalizedJson, `${downloadBaseName}-normalized.json`, 'application/json');
-                          setIsExportsMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                      >
-                        Download Normalized JSON
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json');
-                          setIsExportsMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                      >
-                        Download Bindings Map
-                      </button>
-                      {currentMissingManifest && currentMissingManifest !== '{\n  "imageRefs": {}\n}' ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            downloadText(currentMissingManifest, `${downloadBaseName}-assets-manifest.json`, 'application/json');
-                            setIsExportsMenuOpen(false);
-                          }}
-                          className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                        >
-                          Download Missing-Ref Manifest
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          downloadText(xpressionTemplate, `${downloadBaseName}-xpression-template.txt`, 'text/plain');
-                          setIsExportsMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                      >
-                        Download XPression Template
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyText(xpressionTemplate, 'XPression template copied to clipboard.');
-                          setIsExportsMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs text-espn-slate hover:bg-[#f5f6f7]"
-                      >
-                        Copy XPression Template
-                      </button>
-                    </div>
+              {hasPreview ? (
+                <div className="mt-3 flex flex-wrap gap-1.5 border-b border-espn-border pb-3">
+                  {figmaPreviewUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsFigmaPreviewVisible((current) => !current)}
+                      className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
+                    >
+                      {isFigmaPreviewVisible ? 'Hide Figma SVG' : 'Show Figma SVG'}
+                    </button>
                   ) : null}
                 </div>
-                {figmaPreviewUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsFigmaPreviewVisible((current) => !current)}
-                    className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
-                  >
-                    {isFigmaPreviewVisible ? 'Hide Figma SVG' : 'Show Figma SVG'}
-                  </button>
+              ) : null}
+
+              <div className={`mt-3 grid min-h-[520px] gap-3 ${isFigmaPreviewVisible && figmaPreviewUrl ? 'xl:grid-cols-2' : ''}`}>
+                {previewUrl ? (
+                  <div className="overflow-hidden rounded-2xl border border-espn-border bg-white">
+                    <div className="border-b border-espn-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-espn-muted">Generated SVG</div>
+                    <iframe title="Generated SVG preview" src={previewUrl} className="h-[472px] w-full border-0 bg-[#f7f7f7]" />
+                  </div>
+                ) : (
+                  <p className="px-6 text-center text-xs leading-5 text-espn-muted">Paste a Figma URL and generate the preview.</p>
+                )}
+                {previewUrl && figmaPreviewUrl && isFigmaPreviewVisible ? (
+                  <div className="overflow-hidden rounded-2xl border border-espn-border bg-white">
+                    <div className="border-b border-espn-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-espn-muted">Figma SVG</div>
+                    <iframe title="Figma SVG preview" src={figmaPreviewUrl} className="h-[472px] w-full border-0 bg-[#f7f7f7]" />
+                  </div>
                 ) : null}
               </div>
-            ) : null}
-
-            <div className={`mt-3 grid min-h-[520px] gap-3 ${isFigmaPreviewVisible && figmaPreviewUrl ? 'xl:grid-cols-2' : ''}`}>
-              {previewUrl ? (
-                <div className="overflow-hidden rounded-2xl border border-espn-border bg-white">
-                  <div className="border-b border-espn-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-espn-muted">Generated SVG</div>
-                  <iframe title="Generated SVG preview" src={previewUrl} className="h-[472px] w-full border-0 bg-[#f7f7f7]" />
-                </div>
-              ) : (
-                <p className="px-6 text-center text-xs leading-5 text-espn-muted">Paste a Figma URL and generate the preview.</p>
-              )}
-              {previewUrl && figmaPreviewUrl && isFigmaPreviewVisible ? (
-                <div className="overflow-hidden rounded-2xl border border-espn-border bg-white">
-                  <div className="border-b border-espn-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-espn-muted">Figma SVG</div>
-                  <iframe title="Figma SVG preview" src={figmaPreviewUrl} className="h-[472px] w-full border-0 bg-[#f7f7f7]" />
-                </div>
-              ) : null}
-            </div>
             </section>
 
             {hasPreview ? (
-              <section className="space-y-3">
-                <DisclosurePanel
-                  title="Live text editor"
-                  isOpen={activeOutputPanel === 'editor'}
-                  onToggle={() => setActiveOutputPanel((current) => current === 'editor' ? null : 'editor')}
-                >
-                  {textBindingItems.length > 0 ? (
-                    <div className="space-y-3">
-                      <p className="text-xs leading-5 text-espn-muted">Edit detected text bindings here to see spacing and line-flow changes without opening the sidebar.</p>
-                      {textBindingItems.map((item) => (
-                        <label key={item.fieldKey} className="block rounded-2xl bg-[#F7F7F7] p-3">
-                          <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-espn-muted">{item.fieldKey}</span>
-                          <span className="mt-1 block text-xs text-espn-muted">{item.nodeName}</span>
-                          <textarea
-                            value={operatorValues[item.fieldKey] ?? ''}
-                            onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
-                            rows={Math.max(2, String(operatorValues[item.fieldKey] ?? item.textSample ?? '').split('\n').length)}
-                            placeholder="Enter live text preview value"
-                            className="mt-2 w-full rounded-xl border border-espn-border bg-white px-3 py-2 text-sm outline-none transition focus:border-espn-red"
-                          />
-                        </label>
-                      ))}
+              <>
+                <section className="rounded-[18px] border border-espn-border bg-white shadow-panel">
+                  <div className="border-b border-espn-border px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-espn-slate">Workspace</h3>
+                        <p className="mt-1 text-xs leading-5 text-espn-muted">Switch between editing, reporting, and the two XPression delivery modes without stacking disclosures.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <TabButton label="Native Build" active={activeOutputPanel === 'native'} onClick={() => setActiveOutputPanel('native')} />
+                        <TabButton label="SVG Import" active={activeOutputPanel === 'template'} onClick={() => setActiveOutputPanel('template')} />
+                        <TabButton label="Live Edit" active={activeOutputPanel === 'editor'} onClick={() => setActiveOutputPanel('editor')} />
+                        <TabButton label="Report" active={activeOutputPanel === 'report'} onClick={() => setActiveOutputPanel('report')} />
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-xs text-espn-muted">No dynamic text fields were detected in this preview.</p>
-                  )}
-                </DisclosurePanel>
-                <DisclosurePanel
-                  title="Report"
-                  isOpen={activeOutputPanel === 'report'}
-                  onToggle={() => setActiveOutputPanel((current) => current === 'report' ? null : 'report')}
-                >
-                  <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{currentReport}</pre>
-                </DisclosurePanel>
-                <DisclosurePanel
-                  title="XPression template"
-                  isOpen={activeOutputPanel === 'template'}
-                  onToggle={() => setActiveOutputPanel((current) => current === 'template' ? null : 'template')}
-                >
-                  <div className="mb-3 flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => downloadText(xpressionTemplate, `${downloadBaseName}-xpression-template.txt`, 'text/plain')}
-                      className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
-                    >
-                      Download Template
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void copyText(xpressionTemplate, 'XPression template copied to clipboard.')}
-                      className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate"
-                    >
-                      Copy Template
-                    </button>
                   </div>
-                  <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
-                </DisclosurePanel>
-              </section>
+                  <div className="px-4 py-4">
+                    {activeOutputPanel === 'editor' ? (
+                      currentBindingsManifest && currentBindingsManifest.items.length > 0 ? (
+                        <div className="space-y-3">
+                          <p className="text-xs leading-5 text-espn-muted">Edit text, image, and color bindings here to preview live operator changes without switching to a separate controls panel.</p>
+                          {currentBindingsManifest.items.map((item) => (
+                            <label key={item.fieldKey} className="block rounded-2xl bg-[#F7F7F7] p-3">
+                              <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-espn-muted">{item.fieldKey}</span>
+                              <span className="mt-1 block text-xs text-espn-muted">{item.bindingType} · {item.nodeName}</span>
+                              {item.bindingType === 'color' && (!item.colorValue || !item.colorValue.includes('|')) ? (
+                                <input
+                                  type="color"
+                                  value={(operatorValues[item.fieldKey] || item.colorValue || '#ffffff').slice(0, 7)}
+                                  onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
+                                  className="mt-2 h-9 w-full rounded-lg border border-espn-border bg-white"
+                                />
+                              ) : null}
+                              {item.bindingType === 'text' ? (
+                                <textarea
+                                  value={operatorValues[item.fieldKey] ?? ''}
+                                  onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
+                                  rows={Math.max(2, String(operatorValues[item.fieldKey] ?? item.textSample ?? '').split('\n').length)}
+                                  placeholder="Enter live text preview value"
+                                  className="mt-2 w-full rounded-xl border border-espn-border bg-white px-3 py-2 text-sm outline-none transition focus:border-espn-red"
+                                />
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={operatorValues[item.fieldKey] ?? ''}
+                                  onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
+                                  placeholder={item.bindingType === 'image' ? 'Paste a replacement logo URL' : item.bindingType === 'color' ? 'Enter #RRGGBB or gradient stops' : 'Enter live preview value'}
+                                  className="mt-2 w-full rounded-xl border border-espn-border bg-white px-3 py-2 text-sm outline-none transition focus:border-espn-red"
+                                />
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-espn-muted">No live binding fields were detected in this preview.</p>
+                    ) : null}
+
+                    {activeOutputPanel === 'report' ? (
+                      <>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(currentReport, `${downloadBaseName}-xpression.report.txt`, 'text/plain')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Report</button>
+                        </div>
+                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{currentReport}</pre>
+                      </>
+                    ) : null}
+
+                    {activeOutputPanel === 'template' ? (
+                      <>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to keep the current SVG-based XPression workflow and map fields onto an imported SVG scene.</p>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(xpressionTemplate, `${downloadBaseName}-xpression-template.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Template</button>
+                          <button type="button" onClick={() => void copyText(xpressionTemplate, 'XPression template copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Template</button>
+                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
+                          <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
+                        </div>
+                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
+                      </>
+                    ) : null}
+
+                    {activeOutputPanel === 'native' ? (
+                      <>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in XPression with slabs, text objects, image objects, masks, and material/effect stacks.</p>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(xpressionPrimitivePlan, `${downloadBaseName}-xpression-native-primitives.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Native Plan</button>
+                          <button type="button" onClick={() => void copyText(xpressionPrimitivePlan, 'XPression native primitives plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Native Plan</button>
+                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
+                          <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
+                        </div>
+                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionPrimitivePlan}</pre>
+                      </>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="rounded-[18px] border border-espn-border bg-white shadow-panel">
+                  <div className="border-b border-espn-border px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-espn-slate">Inspector</h3>
+                        <p className="mt-1 text-xs leading-5 text-espn-muted">Operational controls and analysis live here now, so you do not need a hidden sidebar to reach them.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <TabButton label="Readiness" active={activeInspectorTab === 'readiness'} onClick={() => setActiveInspectorTab('readiness')} />
+                        <TabButton label="Bindings" active={activeInspectorTab === 'bindings'} onClick={() => setActiveInspectorTab('bindings')} />
+                        <TabButton label="Fonts" active={activeInspectorTab === 'fonts'} onClick={() => setActiveInspectorTab('fonts')} />
+                        <TabButton label="Prep" active={activeInspectorTab === 'prep'} onClick={() => setActiveInspectorTab('prep')} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-4">
+                    {activeInspectorTab === 'readiness' ? (
+                      <div className="space-y-3">
+                        <MetricGroup title="Compatibility risks" items={riskSummary.length > 0 ? riskSummary : ['No compatibility risks detected in the supported feature set']} />
+                        <MetricGroup
+                          title="Binding validation"
+                          items={currentBindingsManifest && currentBindingsManifest.validationIssues.length > 0
+                            ? currentBindingsManifest.validationIssues
+                            : ['All detected dynamic candidates follow the naming convention']}
+                        />
+                      </div>
+                    ) : null}
+
+                    {activeInspectorTab === 'bindings' ? (
+                      <div className="space-y-3">
+                        <MetricGroup
+                          title="Live fields"
+                          items={currentBindingsManifest && currentBindingsManifest.items.length > 0
+                            ? currentBindingsManifest.items.map((item) => `${item.fieldKey} -> ${item.bindingType}${item.bindingType === 'color' && item.colorValue ? ` (${item.colorValue})` : ''}${item.conventionStatus === 'warn' ? ' (rename)' : ''}`)
+                            : ['No dynamic text or image candidates detected']}
+                        />
+                      </div>
+                    ) : null}
+
+                    {activeInspectorTab === 'fonts' ? (
+                      <>
+                        {Object.keys(fontSubstitutions).length > 0 ? (
+                          <p className="mt-2 text-xs leading-5 text-espn-muted">
+                            {Object.keys(fontSubstitutions).length} font substitution rule{Object.keys(fontSubstitutions).length === 1 ? '' : 's'} applied during preprocessing.
+                          </p>
+                        ) : null}
+                        <div className="mt-3 space-y-2.5">
+                          {fontAudit.length > 0 ? fontAudit.map((font) => (
+                            <div key={font.family} className="rounded-2xl bg-[#F7F7F7] p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-espn-slate">{font.family}</p>
+                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${font.risk === 'warn' ? 'bg-red-100 text-espn-red' : 'bg-zinc-200 text-espn-slate'}`}>
+                                  {font.risk}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-espn-muted">
+                                {font.usageCount} layer(s), browser {font.availableInBrowser === null ? 'availability unknown' : font.availableInBrowser ? 'font available' : 'font not detected'}
+                              </p>
+                              {font.postScriptNames.length > 0 ? (
+                                <p className="mt-1 text-xs leading-5 text-espn-muted">PostScript: {font.postScriptNames.join(', ')}</p>
+                              ) : null}
+                              {font.notes.length > 0 ? (
+                                <ul className="mt-2 space-y-1">
+                                  {font.notes.map((note) => (
+                                    <li key={note} className="text-xs leading-5 text-espn-muted">{note}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          )) : <p className="text-xs text-espn-muted">Generate a preview to audit font usage.</p>}
+                        </div>
+                      </>
+                    ) : null}
+
+                    {activeInspectorTab === 'prep' ? (
+                      <div className="space-y-2.5">
+                        <div className="flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(currentNormalizedJson, `${downloadBaseName}-normalized.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Normalized JSON</button>
+                          {currentMissingManifest && currentMissingManifest !== '{\n  "imageRefs": {}\n}' ? (
+                            <button type="button" onClick={() => downloadText(currentMissingManifest, `${downloadBaseName}-assets-manifest.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Missing-Ref Manifest</button>
+                          ) : null}
+                        </div>
+                        {prepChecklist.map((item) => (
+                          <div key={item.title} className="rounded-2xl bg-[#F7F7F7] p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-espn-slate">{item.title}</p>
+                            <p className="mt-1 text-xs leading-5 text-espn-muted">{item.detail}</p>
+                          </div>
+                        ))}
+                        {prepChecklist.length === 0 ? <p className="text-xs text-espn-muted">Generate a preview to see source normalization guidance.</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              </>
             ) : null}
           </div>
-
-          {isSidebarOpen ? (
-          <aside className="space-y-3">
-            {hasPreview ? (
-              <DisclosurePanel
-                title="Operator controls"
-                isOpen={activeSidebarPanel === 'controls'}
-                onToggle={() => setActiveSidebarPanel((current) => current === 'controls' ? null : 'controls')}
-              >
-                <div className="space-y-3">
-                  {currentBindingsManifest && currentBindingsManifest.items.length > 0 ? currentBindingsManifest.items.map((item) => (
-                    <label key={item.fieldKey} className="block rounded-2xl bg-[#F7F7F7] p-3">
-                      <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-espn-muted">{item.fieldKey}</span>
-                      <span className="mt-1 block text-xs text-espn-muted">{item.bindingType} · {item.nodeName}</span>
-                      {item.bindingType === 'color' && (!item.colorValue || !item.colorValue.includes('|')) ? (
-                        <input
-                          type="color"
-                          value={(operatorValues[item.fieldKey] || item.colorValue || '#ffffff').slice(0, 7)}
-                          onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
-                          className="mt-2 h-9 w-full rounded-lg border border-espn-border bg-white"
-                        />
-                      ) : null}
-                      <input
-                        type="text"
-                        value={operatorValues[item.fieldKey] ?? ''}
-                        onChange={(event) => setOperatorValues((current) => ({ ...current, [item.fieldKey]: event.target.value }))}
-                        placeholder={item.bindingType === 'image' ? 'Paste a replacement logo URL' : item.bindingType === 'color' ? 'Enter #RRGGBB or gradient stops' : 'Enter live text preview value'}
-                        className="mt-2 w-full rounded-xl border border-espn-border bg-white px-3 py-2 text-sm outline-none transition focus:border-espn-red"
-                      />
-                    </label>
-                  )) : <p className="text-xs text-espn-muted">No live binding fields were detected in this preview.</p>}
-                </div>
-              </DisclosurePanel>
-            ) : null}
-            <DisclosurePanel
-              title="Readiness"
-              isOpen={activeSidebarPanel === 'readiness'}
-              onToggle={() => setActiveSidebarPanel((current) => current === 'readiness' ? null : 'readiness')}
-            >
-              <div className="space-y-3">
-                <MetricGroup title="Compatibility risks" items={riskSummary.length > 0 ? riskSummary : ['No compatibility risks detected in the supported feature set']} />
-                <MetricGroup
-                  title="Binding validation"
-                  items={currentBindingsManifest && currentBindingsManifest.validationIssues.length > 0
-                    ? currentBindingsManifest.validationIssues
-                    : ['All detected dynamic candidates follow the naming convention']}
-                />
-              </div>
-            </DisclosurePanel>
-            <DisclosurePanel
-              title="Dynamic bindings"
-              isOpen={activeSidebarPanel === 'bindings'}
-              onToggle={() => setActiveSidebarPanel((current) => current === 'bindings' ? null : 'bindings')}
-            >
-              <div>
-                <MetricGroup
-                  title="Live fields"
-                  items={currentBindingsManifest && currentBindingsManifest.items.length > 0
-                    ? currentBindingsManifest.items.map((item) => `${item.fieldKey} -> ${item.bindingType}${item.bindingType === 'color' && item.colorValue ? ` (${item.colorValue})` : ''}${item.conventionStatus === 'warn' ? ' (rename)' : ''}`)
-                    : ['No dynamic text or image candidates detected']}
-                />
-              </div>
-            </DisclosurePanel>
-            <DisclosurePanel
-              title="Font audit"
-              isOpen={activeSidebarPanel === 'fonts'}
-              onToggle={() => setActiveSidebarPanel((current) => current === 'fonts' ? null : 'fonts')}
-            >
-              {Object.keys(fontSubstitutions).length > 0 ? (
-                <p className="mt-2 text-xs leading-5 text-espn-muted">
-                  {Object.keys(fontSubstitutions).length} font substitution rule{Object.keys(fontSubstitutions).length === 1 ? '' : 's'} applied during preprocessing.
-                </p>
-              ) : null}
-              <div className="mt-3 space-y-2.5">
-                {fontAudit.length > 0 ? fontAudit.map((font) => (
-                  <div key={font.family} className="rounded-2xl bg-[#F7F7F7] p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-espn-slate">{font.family}</p>
-                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${font.risk === 'warn' ? 'bg-red-100 text-espn-red' : 'bg-zinc-200 text-espn-slate'}`}>
-                        {font.risk}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-espn-muted">
-                      {font.usageCount} layer(s), browser {font.availableInBrowser === null ? 'availability unknown' : font.availableInBrowser ? 'font available' : 'font not detected'}
-                    </p>
-                    {font.postScriptNames.length > 0 ? (
-                      <p className="mt-1 text-xs leading-5 text-espn-muted">PostScript: {font.postScriptNames.join(', ')}</p>
-                    ) : null}
-                    {font.notes.length > 0 ? (
-                      <ul className="mt-2 space-y-1">
-                        {font.notes.map((note) => (
-                          <li key={note} className="text-xs leading-5 text-espn-muted">{note}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                )) : <p className="text-xs text-espn-muted">Generate a preview to audit font usage.</p>}
-              </div>
-            </DisclosurePanel>
-            <DisclosurePanel
-              title="XPression prep"
-              isOpen={activeSidebarPanel === 'prep'}
-              onToggle={() => setActiveSidebarPanel((current) => current === 'prep' ? null : 'prep')}
-            >
-              <div className="space-y-2.5">
-                {prepChecklist.map((item) => (
-                  <div key={item.title} className="rounded-2xl bg-[#F7F7F7] p-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-espn-slate">{item.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-espn-muted">{item.detail}</p>
-                  </div>
-                ))}
-                {prepChecklist.length === 0 ? <p className="text-xs text-espn-muted">Generate a preview to see source normalization guidance.</p> : null}
-              </div>
-            </DisclosurePanel>
-          </aside>
-          ) : null}
         </section>
       </main>
     </div>
@@ -1013,29 +925,23 @@ function MetricGroup({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function DisclosurePanel({
-  title,
-  isOpen,
-  onToggle,
-  children,
+function TabButton({
+  label,
+  active,
+  onClick,
 }: {
-  title: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  children: ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <section className="rounded-[18px] border border-espn-border bg-white shadow-panel">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-      >
-        <h3 className="text-sm font-semibold text-espn-slate">{title}</h3>
-        <span className="text-lg leading-none text-espn-muted">{isOpen ? '−' : '+'}</span>
-      </button>
-      {isOpen ? <div className="border-t border-espn-border px-4 py-4">{children}</div> : null}
-    </section>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${active ? 'border-espn-slate bg-espn-slate text-white' : 'border-espn-border bg-[#f5f6f7] text-espn-slate'}`}
+    >
+      {label}
+    </button>
   );
 }
 
