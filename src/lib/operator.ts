@@ -492,6 +492,45 @@ function primitiveObjectLine(item: DynamicBindingItem, value: string, metadata?:
   ].join('\n');
 }
 
+function vizrtObjectLine(item: DynamicBindingItem, value: string, metadata?: SvgBindingMetadata) {
+  if (item.bindingType === 'text') {
+    return [
+      `EnsureVizText(${JSON.stringify(item.fieldKey)}, ${formatBounds(item)}, {`,
+      `  sourceId: ${JSON.stringify(item.svgId)},`,
+      `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+      `  fontFamily: ${quotedOrNull(item.fontFamily)},`,
+      `  postScriptName: ${quotedOrNull(item.fontPostScriptName)},`,
+      `  textCase: ${quotedOrNull(item.textCase)},`,
+      `  align: ${quotedOrNull(item.textAlignHorizontal)},`,
+      `  sample: ${JSON.stringify(value || item.textSample || '')},`,
+      `});`,
+      `BindVizText(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+    ].join('\n');
+  }
+
+  if (item.bindingType === 'image') {
+    return [
+      `EnsureVizImage(${JSON.stringify(item.fieldKey)}, ${formatBounds(item)}, {`,
+      `  sourceId: ${JSON.stringify(item.svgId)},`,
+      `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+      `  sample: ${JSON.stringify(value || item.imageRef || '')},`,
+      `});`,
+      `BindVizTexture(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+    ].join('\n');
+  }
+
+  const primitiveKind = metadata?.fill?.startsWith('url(#') ? 'gradient-panel' : metadata?.tagName === 'path' ? 'path-shape' : 'rectangle';
+  return [
+    `EnsureVizShape(${JSON.stringify(item.fieldKey)}, ${JSON.stringify(primitiveKind)}, ${formatBounds(item)}, {`,
+    `  sourceId: ${JSON.stringify(item.svgId)},`,
+    `  sourceNode: ${JSON.stringify(item.nodeName)},`,
+    `  fill: ${quotedOrNull(metadata?.fill || item.colorValue || null)},`,
+    `  stroke: ${quotedOrNull(metadata?.stroke)},`,
+    `});`,
+    `BindVizMaterialColor(${JSON.stringify(item.fieldKey)}, banner.${item.fieldKey});`,
+  ].join('\n');
+}
+
 export function buildXpressionPrimitivePlan(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
   if (!manifest) {
     return 'No native XPression primitives plan yet.';
@@ -555,6 +594,72 @@ export function buildXpressionDataPayload(manifest: DynamicBindingsManifest | nu
 
   const banner = Object.fromEntries(manifest.items.map((item) => [item.fieldKey, values[item.fieldKey] ?? '']));
   return JSON.stringify({ banner }, null, 2);
+}
+
+export function buildVizrtScenePlan(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
+  if (!manifest) {
+    return 'No Vizrt native scene plan yet.';
+  }
+
+  const dataLines = manifest.items.map((item) => `  ${item.fieldKey}: ${JSON.stringify(values[item.fieldKey] ?? '')},`);
+  const metadataByFieldKey = bindingMetadataByFieldKey(manifest, svg || null);
+  const sceneLines = manifest.items.flatMap((item) => {
+    const lines = [vizrtObjectLine(item, values[item.fieldKey] ?? '', metadataByFieldKey.get(item.fieldKey))];
+    const flowLine = flowTemplateLine(item, manifest);
+    if (flowLine && item.bindingType === 'text') {
+      lines.push(`// Vizrt relative text flow: ${flowLine}`);
+    }
+    return lines;
+  });
+
+  const effectNotes = manifest.items.flatMap((item) => {
+    const metadata = metadataByFieldKey.get(item.fieldKey);
+    if (!metadata) {
+      return [];
+    }
+
+    const notes = [];
+    if (metadata.hasInnerShadow) {
+      notes.push(`ApproximateVizInnerShadow(${JSON.stringify(item.fieldKey)}); // rebuild with layered geometry/materials in Viz Artist`);
+    }
+    if (metadata.hasLayerBlur) {
+      notes.push(`ApplyVizGlowOrBlur(${JSON.stringify(item.fieldKey)}); // use Viz native blur/glow/material effects instead of SVG filters`);
+    }
+    return notes;
+  });
+
+  return [
+    '// Vizrt native scene build plan',
+    '// Alternative path: rebuild the graphic in Viz Artist with containers, text, images, shapes, and materials.',
+    '// Keep using the XPression tabs when your target is XPression; this plan is a separate Viz-native handoff.',
+    '',
+    'const banner = {',
+    ...dataLines,
+    '};',
+    '',
+    '// Scene scaffolding',
+    'CreateVizScene("Banner");',
+    'CreateContainer("Root");',
+    '',
+    ...sceneLines,
+    ...(effectNotes.length > 0 ? ['', '// Viz-native effect recreation', ...effectNotes] : []),
+    '',
+    '// Recommended Vizrt-native build notes',
+    '// - Use containers and shape geometry for panel structure and masks.',
+    '// - Use text objects and script/container logic for editable copy and relative flow.',
+    '// - Use image materials or texture slots for logos and photography.',
+    '// - Drive the banner object from Trio, DataPool, MOS, or your control layer of choice.',
+    '// - Rebuild gradients, blur, glow, and inner-shadow looks with Viz Artist materials/effects.',
+  ].join('\n');
+}
+
+export function buildVizrtDataPayload(manifest: DynamicBindingsManifest | null, values: OperatorValues) {
+  if (!manifest) {
+    return '{\n  "scene": "Banner",\n  "banner": {}\n}';
+  }
+
+  const banner = Object.fromEntries(manifest.items.map((item) => [item.fieldKey, values[item.fieldKey] ?? '']));
+  return JSON.stringify({ scene: 'Banner', banner }, null, 2);
 }
 
 export function buildXpressionTemplate(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {

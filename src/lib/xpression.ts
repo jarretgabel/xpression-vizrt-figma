@@ -46,6 +46,29 @@ export function summarizeRisks(warnings: ConverterWarnings) {
   return items;
 }
 
+export function summarizeVizrtRisks(warnings: ConverterWarnings) {
+  const items: string[] = [];
+  if (warnings.unsupportedNodes.length > 0) {
+    items.push(`${warnings.unsupportedNodes.length} unsupported node type${warnings.unsupportedNodes.length === 1 ? '' : 's'} likely need manual Viz scene reconstruction`);
+  }
+  if (warnings.unsupportedPaints.length > 0) {
+    items.push(`${warnings.unsupportedPaints.length} unsupported paint${warnings.unsupportedPaints.length === 1 ? '' : 's'} will need native Viz material rebuilds`);
+  }
+  if (warnings.transformNodes.length > 0) {
+    items.push(`${warnings.transformNodes.length} transformed layer${warnings.transformNodes.length === 1 ? '' : 's'} may need container or pivot cleanup in Viz Artist`);
+  }
+  if (warnings.styledTextRuns.length > 0) {
+    items.push(`${warnings.styledTextRuns.length} mixed-style text layer${warnings.styledTextRuns.length === 1 ? '' : 's'} should be split into separate Viz text objects`);
+  }
+  if (warnings.ignoredEffects.length > 0) {
+    items.push(`${warnings.ignoredEffects.length} effect stack${warnings.ignoredEffects.length === 1 ? '' : 's'} will need manual Viz material or scene-effect recreation`);
+  }
+  if (warnings.missingImages.length > 0) {
+    items.push(`${warnings.missingImages.length} raster asset${warnings.missingImages.length === 1 ? '' : 's'} still need explicit Viz texture mapping`);
+  }
+  return items;
+}
+
 export function buildPrepChecklist(source: FigmaSource, warnings: ConverterWarnings) {
   const firstNodeKey = Object.keys(source.nodes || {})[0];
   const root = source.nodes?.[firstNodeKey]?.document;

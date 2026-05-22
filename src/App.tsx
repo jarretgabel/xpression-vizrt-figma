@@ -11,9 +11,9 @@ import {
 import { auditFonts } from './lib/audit';
 import { buildDynamicBindingsManifest } from './lib/bindings';
 import { parseFontSubstitutionEnv } from './lib/fonts';
-import { applyBindingsToSvg, buildInitialOperatorValues, buildXpressionDataPayload, buildXpressionPrimitivePlan, buildXpressionTemplate } from './lib/operator';
+import { applyBindingsToSvg, buildInitialOperatorValues, buildVizrtDataPayload, buildVizrtScenePlan, buildXpressionDataPayload, buildXpressionPrimitivePlan, buildXpressionTemplate } from './lib/operator';
 import { preprocessFigmaSource, summarizePreprocess } from './lib/preprocess';
-import { buildPrepChecklist, summarizeRisks } from './lib/xpression';
+import { buildPrepChecklist, summarizeRisks, summarizeVizrtRisks } from './lib/xpression';
 import type { ConverterWarnings, DynamicBindingsManifest, FigmaNode, FigmaSource, FontAuditItem, XpressionPrepItem } from './types';
 
 const defaultToken = import.meta.env.VITE_FIGMA_TOKEN?.trim() ?? '';
@@ -437,12 +437,15 @@ function App() {
   const [figmaPreviewUrl, setFigmaPreviewUrl] = useState<string | null>(null);
   const [isFigmaPreviewVisible, setIsFigmaPreviewVisible] = useState(false);
   const [activeInspectorTab, setActiveInspectorTab] = useState<'readiness' | 'bindings' | 'fonts' | 'prep'>('readiness');
-  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | 'template' | 'native'>('native');
+  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | 'template' | 'native' | 'vizrt' | 'vizrt-svg'>('native');
+  const [activeDeliveryTarget, setActiveDeliveryTarget] = useState<'template' | 'native' | 'vizrt' | 'vizrt-svg'>('native');
 
   const customizedSvg = useMemo(() => applyBindingsToSvg(currentSvg, currentBindingsManifest, operatorValues), [currentSvg, currentBindingsManifest, operatorValues]);
   const xpressionDataPayload = useMemo(() => buildXpressionDataPayload(currentBindingsManifest, operatorValues), [currentBindingsManifest, operatorValues]);
+  const vizrtDataPayload = useMemo(() => buildVizrtDataPayload(currentBindingsManifest, operatorValues), [currentBindingsManifest, operatorValues]);
   const xpressionTemplate = useMemo(() => buildXpressionTemplate(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
   const xpressionPrimitivePlan = useMemo(() => buildXpressionPrimitivePlan(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
+  const vizrtScenePlan = useMemo(() => buildVizrtScenePlan(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
   const hasPreview = Boolean(currentSvg);
   const hasMeaningfulStatus = Boolean(status) && !status.startsWith('Waiting for a Figma URL');
 
@@ -633,17 +636,26 @@ function App() {
   }
 
   const downloadBaseName = slugFromFileName(figmaSourceLabel, 'figma');
-  const riskSummary = currentWarnings ? summarizeRisks(currentWarnings) : [];
+  const xpressionRiskSummary = currentWarnings ? summarizeRisks(currentWarnings) : [];
+  const vizrtRiskSummary = currentWarnings ? summarizeVizrtRisks(currentWarnings) : [];
+  const deliveryTargetLabel = activeDeliveryTarget === 'vizrt'
+    ? 'Vizrt Native'
+    : activeDeliveryTarget === 'vizrt-svg'
+      ? 'Vizrt SVG Assets'
+    : activeDeliveryTarget === 'template'
+      ? 'XPression SVG Import'
+      : 'XPression Native';
+  const readinessRiskSummary = activeDeliveryTarget === 'vizrt' || activeDeliveryTarget === 'vizrt-svg' ? vizrtRiskSummary : xpressionRiskSummary;
   return (
     <div className="min-h-screen bg-transparent text-espn-slate">
-      <main className="mx-auto flex min-h-screen max-w-full flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5">
+      <main className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5">
         <section className="rounded-[18px] border border-espn-border bg-white px-4 py-3 shadow-panel">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-espn-muted">Figma to XPression</p>
             <h1 className="mt-1 text-xl font-semibold leading-tight tracking-[-0.03em] text-espn-slate sm:text-2xl">
               Live graphics prep for XPression
             </h1>
-            <p className="mt-1 text-xs text-espn-muted">Load a Figma node, preview it, then choose between an SVG import handoff or a native XPression primitives/slabs build guide.</p>
+            <p className="mt-1 text-xs text-espn-muted">Load a Figma node, preview it, then choose between XPression SVG import, XPression native build, Vizrt native build, or Vizrt SVG asset handoffs.</p>
           </div>
         </section>
 
@@ -715,23 +727,37 @@ function App() {
             </section>
 
             {hasPreview ? (
-              <>
-                <section className="rounded-[18px] border border-espn-border bg-white shadow-panel">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+                <section className="min-w-0 rounded-[18px] border border-espn-border bg-white shadow-panel">
                   <div className="border-b border-espn-border px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold text-espn-slate">Workspace</h3>
-                        <p className="mt-1 text-xs leading-5 text-espn-muted">Switch between editing, reporting, and the two XPression delivery modes without stacking disclosures.</p>
+                        <p className="mt-1 text-xs leading-5 text-espn-muted">Switch between editing, reporting, XPression delivery modes, Vizrt native build, and Vizrt SVG asset export without stacking disclosures.</p>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        <TabButton label="Native Build" active={activeOutputPanel === 'native'} onClick={() => setActiveOutputPanel('native')} />
-                        <TabButton label="SVG Import" active={activeOutputPanel === 'template'} onClick={() => setActiveOutputPanel('template')} />
+                      <div className="flex min-w-0 flex-wrap gap-1.5">
+                        <TabButton label="XPression Native" active={activeOutputPanel === 'native'} onClick={() => {
+                          setActiveOutputPanel('native');
+                          setActiveDeliveryTarget('native');
+                        }} />
+                        <TabButton label="XPression SVG Import" active={activeOutputPanel === 'template'} onClick={() => {
+                          setActiveOutputPanel('template');
+                          setActiveDeliveryTarget('template');
+                        }} />
+                        <TabButton label="Vizrt Native" active={activeOutputPanel === 'vizrt'} onClick={() => {
+                          setActiveOutputPanel('vizrt');
+                          setActiveDeliveryTarget('vizrt');
+                        }} />
+                        <TabButton label="Vizrt SVG Assets" active={activeOutputPanel === 'vizrt-svg'} onClick={() => {
+                          setActiveOutputPanel('vizrt-svg');
+                          setActiveDeliveryTarget('vizrt-svg');
+                        }} />
                         <TabButton label="Live Edit" active={activeOutputPanel === 'editor'} onClick={() => setActiveOutputPanel('editor')} />
                         <TabButton label="Report" active={activeOutputPanel === 'report'} onClick={() => setActiveOutputPanel('report')} />
                       </div>
                     </div>
                   </div>
-                  <div className="px-4 py-4">
+                  <div className="min-w-0 px-4 py-4">
                     {activeOutputPanel === 'editor' ? (
                       currentBindingsManifest && currentBindingsManifest.items.length > 0 ? (
                         <div className="space-y-3">
@@ -776,7 +802,7 @@ function App() {
                         <div className="mb-3 flex flex-wrap gap-1.5">
                           <button type="button" onClick={() => downloadText(currentReport, `${downloadBaseName}-xpression.report.txt`, 'text/plain')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Report</button>
                         </div>
-                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{currentReport}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{currentReport}</pre>
                       </>
                     ) : null}
 
@@ -789,7 +815,7 @@ function App() {
                           <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
                           <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
                         </div>
-                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
                       </>
                     ) : null}
 
@@ -797,25 +823,49 @@ function App() {
                       <>
                         <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in XPression with slabs, text objects, image objects, masks, and material/effect stacks.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadText(xpressionPrimitivePlan, `${downloadBaseName}-xpression-native-primitives.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Native Build Plan</button>
-                          <button type="button" onClick={() => void copyText(xpressionPrimitivePlan, 'XPression native primitives plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Native Plan</button>
+                          <button type="button" onClick={() => downloadText(xpressionPrimitivePlan, `${downloadBaseName}-xpression-native-primitives.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression Native Plan</button>
+                          <button type="button" onClick={() => void copyText(xpressionPrimitivePlan, 'XPression native primitives plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy XPression Plan</button>
                           <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
                           <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
                         </div>
-                        <pre className="overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionPrimitivePlan}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionPrimitivePlan}</pre>
+                      </>
+                    ) : null}
+
+                    {activeOutputPanel === 'vizrt' ? (
+                      <>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in Viz Artist with containers, text objects, image materials, shapes, and effect stacks instead of importing SVG.</p>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(vizrtScenePlan, `${downloadBaseName}-vizrt-native-plan.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt Native Plan</button>
+                          <button type="button" onClick={() => void copyText(vizrtScenePlan, 'Vizrt native build plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Vizrt Plan</button>
+                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-vizrt-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
+                          <button type="button" onClick={() => downloadText(vizrtDataPayload, `${downloadBaseName}-vizrt-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Vizrt Data Payload</button>
+                        </div>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{vizrtScenePlan}</pre>
+                      </>
+                    ) : null}
+
+                    {activeOutputPanel === 'vizrt-svg' ? (
+                      <>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when Viz needs SVG artwork as reference or static vector assets. This is not the same as the XPression SVG import workflow and should be treated as an asset export, not a bindable scene handoff.</p>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => downloadText(customizedSvg, `${downloadBaseName}-vizrt-assets.svg`, 'image/svg+xml')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt SVG</button>
+                          <button type="button" onClick={() => downloadText(currentMissingManifest || '{\n  "imageRefs": {}\n}', `${downloadBaseName}-vizrt-assets-manifest.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Vizrt Asset Manifest</button>
+                        </div>
+                        <pre className="min-w-0 max-w-full overflow-auto whitespace-pre-wrap break-all rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{customizedSvg || 'No Vizrt SVG asset export yet.'}</pre>
                       </>
                     ) : null}
                   </div>
                 </section>
 
-                <section className="rounded-[18px] border border-espn-border bg-white shadow-panel">
+                <section className="min-w-0 rounded-[18px] border border-espn-border bg-white shadow-panel xl:sticky xl:top-3">
                   <div className="border-b border-espn-border px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold text-espn-slate">Inspector</h3>
-                        <p className="mt-1 text-xs leading-5 text-espn-muted">Operational controls and analysis live here now, so you do not need a hidden sidebar to reach them.</p>
+                        <p className="mt-1 text-xs leading-5 text-espn-muted">Operational controls are shared across outputs. Readiness is currently showing guidance for {deliveryTargetLabel}.</p>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex min-w-0 flex-wrap gap-1.5">
                         <TabButton label="Readiness" active={activeInspectorTab === 'readiness'} onClick={() => setActiveInspectorTab('readiness')} />
                         <TabButton label="Bindings" active={activeInspectorTab === 'bindings'} onClick={() => setActiveInspectorTab('bindings')} />
                         <TabButton label="Fonts" active={activeInspectorTab === 'fonts'} onClick={() => setActiveInspectorTab('fonts')} />
@@ -823,10 +873,17 @@ function App() {
                       </div>
                     </div>
                   </div>
-                  <div className="px-4 py-4">
+                  <div className="min-w-0 px-4 py-4">
                     {activeInspectorTab === 'readiness' ? (
                       <div className="space-y-3">
-                        <MetricGroup title="Compatibility risks" items={riskSummary.length > 0 ? riskSummary : ['No compatibility risks detected in the supported feature set']} />
+                        <div className="rounded-2xl bg-[#f7f7f7] p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-espn-muted">Current target</p>
+                          <p className="mt-2 text-xs leading-5 text-espn-slate">{deliveryTargetLabel}</p>
+                          <p className="mt-1 text-xs leading-5 text-espn-muted">
+                            Shared tabs like Bindings, Fonts, and Prep stay tied to the source graphic. This Readiness view adapts to the selected delivery path.
+                          </p>
+                        </div>
+                        <MetricGroup title={`${deliveryTargetLabel} risks`} items={readinessRiskSummary.length > 0 ? readinessRiskSummary : [`No ${deliveryTargetLabel.toLowerCase()} compatibility risks detected in the supported feature set`]} />
                         <MetricGroup
                           title="Binding validation"
                           items={currentBindingsManifest && currentBindingsManifest.validationIssues.length > 0
@@ -901,7 +958,7 @@ function App() {
                     ) : null}
                   </div>
                 </section>
-              </>
+              </div>
             ) : null}
           </div>
         </section>
