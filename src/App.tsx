@@ -63,6 +63,61 @@ function previewAssetUrl(path: string) {
   return path.replace(/^\//, '');
 }
 
+function readFigmaUrlFromDeepLink(search: string) {
+  const searchParams = new URLSearchParams(search);
+  const directValue = searchParams.get('figma') || searchParams.get('figmaUrl') || searchParams.get('url') || '';
+  if (directValue.trim()) {
+    return directValue.trim();
+  }
+
+  const fileKey = searchParams.get('fileKey') || searchParams.get('key') || '';
+  const nodeIds = normalizeNodeIds(
+    searchParams.get('node-id')
+    || searchParams.get('nodeId')
+    || searchParams.get('nodeIds')
+    || searchParams.get('ids')
+    || '',
+  );
+
+  if (!fileKey.trim() || !nodeIds) {
+    return '';
+  }
+
+  const figmaUrl = new URL(`https://www.figma.com/file/${fileKey.trim()}`);
+  figmaUrl.searchParams.set('node-id', nodeIds);
+  return figmaUrl.toString();
+}
+
+function buildAppDeepLinkHref(currentHref: string, figmaUrl: string) {
+  const nextUrl = new URL(currentHref);
+  const trimmedValue = figmaUrl.trim();
+
+  nextUrl.searchParams.delete('figmaUrl');
+  nextUrl.searchParams.delete('url');
+  nextUrl.searchParams.delete('fileKey');
+  nextUrl.searchParams.delete('key');
+  nextUrl.searchParams.delete('node-id');
+  nextUrl.searchParams.delete('nodeId');
+  nextUrl.searchParams.delete('nodeIds');
+  nextUrl.searchParams.delete('ids');
+
+  if (trimmedValue) {
+    nextUrl.searchParams.set('figma', trimmedValue);
+  } else {
+    nextUrl.searchParams.delete('figma');
+  }
+
+  return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+}
+
+function syncFigmaUrlToDeepLink(figmaUrl: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.history.replaceState({}, '', buildAppDeepLinkHref(window.location.href, figmaUrl));
+}
+
 function buildDeliveryChecklist({
   target,
   warnings,
@@ -599,6 +654,7 @@ function buildPreviewDocument(svg: string) {
 
 function App() {
   const previewRequestIdRef = useRef(0);
+  const didApplyDeepLinkRef = useRef(false);
   const [figmaSourceLabel, setFigmaSourceLabel] = useState('');
   const [figmaUrl, setFigmaUrl] = useState('');
   const [status, setStatus] = useState('');
@@ -676,6 +732,37 @@ function App() {
       URL.revokeObjectURL(nextUrl);
     };
   }, [figmaPreviewSvg]);
+
+  useEffect(() => {
+    if (didApplyDeepLinkRef.current || typeof window === 'undefined') {
+      return;
+    }
+
+    didApplyDeepLinkRef.current = true;
+    const linkedFigmaUrl = readFigmaUrlFromDeepLink(window.location.search);
+    if (!linkedFigmaUrl) {
+      return;
+    }
+
+    setFigmaUrl(linkedFigmaUrl);
+
+    const parsedIdentifiers = extractFigmaIdentifiers(linkedFigmaUrl);
+    if (!parsedIdentifiers?.fileKey || !parsedIdentifiers.nodeIds) {
+      setStatus('Loaded a shared Figma link from the URL. It still needs a node id before the preview can be generated.');
+      return;
+    }
+
+    if (!defaultToken) {
+      setStatus('Loaded a shared Figma link from the URL. Add VITE_FIGMA_TOKEN to fetch the preview in this environment.');
+      return;
+    }
+
+    void generateFromApi(linkedFigmaUrl);
+  }, []);
+
+  useEffect(() => {
+    syncFigmaUrlToDeepLink(figmaUrl);
+  }, [figmaUrl]);
 
   async function buildPreviewFromSource(source: FigmaSource, sourceLabel: string, fileKey: string, nodeIds: string) {
     const requestId = previewRequestIdRef.current + 1;
@@ -768,13 +855,13 @@ function App() {
     })();
   }
 
-  async function generateFromApi() {
+  async function generateFromApi(inputUrl = figmaUrl) {
     if (!defaultToken) {
       setStatus('Add VITE_FIGMA_TOKEN to .env.local and restart the Vite dev server before fetching.');
       return;
     }
 
-    const parsed = extractFigmaIdentifiers(figmaUrl);
+    const parsed = extractFigmaIdentifiers(inputUrl);
     if (!parsed || !parsed.fileKey || !parsed.nodeIds) {
       setStatus('Paste a Figma file or node URL that includes a node id.');
       return;
@@ -817,6 +904,21 @@ function App() {
     } catch {
       setStatus('Could not copy to clipboard in this browser session.');
     }
+  }
+
+  async function copyShareLink() {
+    if (!figmaUrl.trim()) {
+      setStatus('Paste a Figma URL before copying a share link.');
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      setStatus('Could not build a share link in this environment.');
+      return;
+    }
+
+    const shareHref = new URL(buildAppDeepLinkHref(window.location.href, figmaUrl), window.location.origin).toString();
+    await copyText(shareHref, 'Share link copied to clipboard.');
   }
 
   async function downloadDeliveryPackage(target: DeliveryTarget) {
@@ -907,14 +1009,14 @@ function App() {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-espn-muted">Figma to XPression</p>
             <h1 className="mt-1 text-xl font-semibold leading-tight tracking-[-0.03em] text-espn-slate sm:text-2xl">
-              Live graphics prep for XPression
+              Live graphics prep for XPression & Vizrt
             </h1>
             <p className="mt-1 text-xs text-espn-muted">Load a Figma node, preview it, then choose between XPression SVG import, XPression native build, Vizrt native build, or Vizrt SVG asset handoffs.</p>
           </div>
         </section>
 
         <section className="rounded-[18px] border border-espn-border bg-white p-4 shadow-panel">
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
             <label className="block">
               <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.18em] text-espn-muted">Figma URL</span>
               <input
@@ -924,7 +1026,14 @@ function App() {
                 className="h-10 w-full rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-sm outline-none transition focus:border-espn-red"
               />
             </label>
-            <button type="button" onClick={generateFromApi} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
+            <button type="button" onClick={() => {
+              void copyShareLink();
+            }} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
+              Copy Share Link
+            </button>
+            <button type="button" onClick={() => {
+              void generateFromApi();
+            }} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
               Generate Preview
             </button>
           </div>
