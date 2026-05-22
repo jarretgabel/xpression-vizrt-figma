@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'BentonSans';
+  src: url('/fonts/benton-sans-regular.woff2') format('woff2'),
+       url('/fonts/benton-sans-regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'BentonSansMedium';
+  src: url('/fonts/benton-sans-medium.woff2') format('woff2'),
+       url('/fonts/benton-sans-medium.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'BentonSansCond';
+  src: url('/fonts/bentonsanscond.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'BentonSansCondMedium';
+  src: url('/fonts/bentonsanscondmedium.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'BentonSansCondBold';
+  src: url('/fonts/bentonsanscondbold.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+:root {
+  color: #1a1a1a;
+  background: #f1f2f4;
+  font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 242, 244, 0.96) 100%),
+    #f1f2f4;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
