@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import { convertFigmaJsonToSvg, preferredFontFamilyForStyle } from '../lib/convert-figma-json-to-svg.mjs';
 import {
   buildRemoteImageAssets,
@@ -20,13 +21,167 @@ const defaultToken = import.meta.env.VITE_FIGMA_TOKEN?.trim() ?? '';
 const fontSubstitutions = parseFontSubstitutionEnv(import.meta.env.VITE_FONT_SUBSTITUTIONS);
 const previewFontStylesheet = 'https://a.espncdn.com/combiner/c?css=fonts/bentonsans.css,fonts/bentonsansmedium.css,fonts/bentonsansbold.css,pagetype/otl/tungsten/tungsten_700.css,pagetype/otl/tungsten/tungsten_600.css';
 const previewIgniteStylesheet = 'https://a.espncdn.com/prod/fonts/ESPNIgnite/ignite.css';
+const emptyMissingManifest = '{\n  "imageRefs": {}\n}';
+
+type DeliveryTarget = 'template' | 'native' | 'vizrt' | 'vizrt-svg';
+type ChecklistStatus = 'ready' | 'attention' | 'info';
+type DeliveryChecklistItem = {
+  title: string;
+  detail: string;
+  status: ChecklistStatus;
+};
 
 function previewAssetUrl(path: string) {
   if (typeof window === 'undefined') {
     return path;
   }
 
-  return new URL(path, window.location.origin).toString();
+  return new URL(path.replace(/^\//, ''), document.baseURI).toString();
+}
+
+function buildDeliveryChecklist({
+  target,
+  warnings,
+  fontAudit,
+  bindingsManifest,
+  missingManifest,
+  hasPreview,
+}: {
+  target: DeliveryTarget;
+  warnings: ConverterWarnings | null;
+  fontAudit: FontAuditItem[];
+  bindingsManifest: DynamicBindingsManifest | null;
+  missingManifest: string;
+  hasPreview: boolean;
+}): DeliveryChecklistItem[] {
+  const hasMissingRefs = Boolean(missingManifest) && missingManifest !== emptyMissingManifest;
+  const hasFontRisk = fontAudit.some((item) => item.risk === 'warn');
+  const bindingCount = bindingsManifest?.items.length ?? 0;
+
+  if (!hasPreview || !warnings) {
+    return [
+      {
+        title: 'Generate a preview first',
+        detail: 'The checklist becomes target-aware once the source has been analyzed.',
+        status: 'info',
+      },
+    ];
+  }
+
+  if (target === 'template') {
+    return [
+      {
+        title: 'Verify SVG import compatibility',
+        detail: warnings.ignoredEffects.length > 0 || warnings.transformNodes.length > 0
+          ? 'This source has effects or transforms that may require cleanup before XPression SVG import.'
+          : 'The source is within the expected SVG import path for XPression.',
+        status: warnings.ignoredEffects.length > 0 || warnings.transformNodes.length > 0 ? 'attention' : 'ready',
+      },
+      {
+        title: 'Confirm fonts in XPression',
+        detail: hasFontRisk
+          ? 'One or more source fonts are missing or risky in the browser audit and should be verified in the target system.'
+          : 'No browser-side font risks were detected for the current source.',
+        status: hasFontRisk ? 'attention' : 'ready',
+      },
+      {
+        title: 'Map raster assets before import',
+        detail: hasMissingRefs
+          ? 'Unresolved image refs still need to be mapped before the import package is considered complete.'
+          : 'No unresolved image refs remain for the current source.',
+        status: hasMissingRefs ? 'attention' : 'ready',
+      },
+      {
+        title: 'Bind live fields after import',
+        detail: bindingCount > 0
+          ? `${bindingCount} live field${bindingCount === 1 ? '' : 's'} were detected and are included in the package bindings map and data payload.`
+          : 'No live bindings were detected for this source.',
+        status: bindingCount > 0 ? 'ready' : 'info',
+      },
+    ];
+  }
+
+  if (target === 'native') {
+    return [
+      {
+        title: 'Rebuild with native XPression objects',
+        detail: 'Use the package plan to recreate text, image, and primitive objects instead of relying on SVG import fidelity.',
+        status: 'info',
+      },
+      {
+        title: 'Confirm fonts in XPression',
+        detail: hasFontRisk
+          ? 'Audit risky fonts before building the native scene.'
+          : 'No browser-side font risks were detected for the current source.',
+        status: hasFontRisk ? 'attention' : 'ready',
+      },
+      {
+        title: 'Resolve logos and raster textures',
+        detail: hasMissingRefs
+          ? 'Unresolved image refs still need explicit mapping before scene build.'
+          : 'No unresolved raster mappings remain for the current source.',
+        status: hasMissingRefs ? 'attention' : 'ready',
+      },
+      {
+        title: 'Recreate effects in-scene',
+        detail: warnings.ignoredEffects.length > 0
+          ? 'Effect stacks were detected that will need native recreation in XPression.'
+          : 'No unsupported effect stacks were detected beyond the supported export path.',
+        status: warnings.ignoredEffects.length > 0 ? 'attention' : 'ready',
+      },
+    ];
+  }
+
+  if (target === 'vizrt') {
+    return [
+      {
+        title: 'Rebuild natively in Viz Artist',
+        detail: 'Use containers, text objects, image materials, and native shape/material logic rather than imported SVG scene structure.',
+        status: 'info',
+      },
+      {
+        title: 'Resolve image and texture mappings',
+        detail: hasMissingRefs
+          ? 'Some raster assets still need explicit mapping into Viz textures/materials.'
+          : 'No unresolved raster mappings remain for the current source.',
+        status: hasMissingRefs ? 'attention' : 'ready',
+      },
+      {
+        title: 'Split mixed-style text where needed',
+        detail: warnings.styledTextRuns.length > 0
+          ? 'Mixed-style text layers were detected and may need to be separated into multiple Viz text objects.'
+          : 'No mixed-style text layers were detected.',
+        status: warnings.styledTextRuns.length > 0 ? 'attention' : 'ready',
+      },
+      {
+        title: 'Rebuild effects with Viz materials',
+        detail: warnings.ignoredEffects.length > 0
+          ? 'Unsupported effect stacks were detected and should be rebuilt with Viz materials/effects.'
+          : 'No unsupported effect stacks were detected beyond the supported export path.',
+        status: warnings.ignoredEffects.length > 0 ? 'attention' : 'ready',
+      },
+    ];
+  }
+
+  return [
+    {
+      title: 'Treat this as an asset export',
+      detail: 'This path is meant for SVG artwork/reference delivery to Viz workflows, not a bindable scene import.',
+      status: 'info',
+    },
+    {
+      title: 'Verify asset load path in Viz workflow',
+      detail: 'Confirm the exported SVG is being consumed as reference art or a static vector asset in the target pipeline.',
+      status: 'info',
+    },
+    {
+      title: 'Map external raster assets',
+      detail: hasMissingRefs
+        ? 'The asset manifest still contains unresolved image refs that should be mapped before delivery.'
+        : 'No unresolved image refs remain for the current asset package.',
+      status: hasMissingRefs ? 'attention' : 'ready',
+    },
+  ];
 }
 
 function walkFigmaNodes(node: FigmaNode | undefined, visit: (node: FigmaNode) => void) {
@@ -437,8 +592,8 @@ function App() {
   const [figmaPreviewUrl, setFigmaPreviewUrl] = useState<string | null>(null);
   const [isFigmaPreviewVisible, setIsFigmaPreviewVisible] = useState(false);
   const [activeInspectorTab, setActiveInspectorTab] = useState<'readiness' | 'bindings' | 'fonts' | 'prep'>('readiness');
-  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | 'template' | 'native' | 'vizrt' | 'vizrt-svg'>('native');
-  const [activeDeliveryTarget, setActiveDeliveryTarget] = useState<'template' | 'native' | 'vizrt' | 'vizrt-svg'>('native');
+  const [activeOutputPanel, setActiveOutputPanel] = useState<'editor' | 'report' | DeliveryTarget>('native');
+  const [activeDeliveryTarget, setActiveDeliveryTarget] = useState<DeliveryTarget>('native');
 
   const customizedSvg = useMemo(() => applyBindingsToSvg(currentSvg, currentBindingsManifest, operatorValues), [currentSvg, currentBindingsManifest, operatorValues]);
   const xpressionDataPayload = useMemo(() => buildXpressionDataPayload(currentBindingsManifest, operatorValues), [currentBindingsManifest, operatorValues]);
@@ -616,14 +771,18 @@ function App() {
     }
   }
 
-  function downloadText(text: string, fileName: string, mimeType: string) {
-    const blob = new Blob([text], { type: mimeType });
+  function downloadBlob(blob: Blob, fileName: string) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadText(text: string, fileName: string, mimeType: string) {
+    const blob = new Blob([text], { type: mimeType });
+    downloadBlob(blob, fileName);
   }
 
   async function copyText(text: string, successMessage: string) {
@@ -633,6 +792,68 @@ function App() {
     } catch {
       setStatus('Could not copy to clipboard in this browser session.');
     }
+  }
+
+  async function downloadDeliveryPackage(target: DeliveryTarget) {
+    if (!hasPreview) {
+      setStatus('Generate a preview before downloading a delivery package.');
+      return;
+    }
+
+    const zip = new JSZip();
+    const checklist = buildDeliveryChecklist({
+      target,
+      warnings: currentWarnings,
+      fontAudit,
+      bindingsManifest: currentBindingsManifest,
+      missingManifest: currentMissingManifest,
+      hasPreview,
+    });
+    const checklistText = checklist
+      .map((item) => `[${item.status.toUpperCase()}] ${item.title}\n${item.detail}`)
+      .join('\n\n');
+
+    zip.file('report.txt', currentReport);
+    zip.file('checklist.txt', checklistText);
+
+    if (target === 'template') {
+      zip.file('graphic.svg', currentSvg);
+      zip.file('xpression-svg-import-template.txt', xpressionTemplate);
+      zip.file('xpression-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
+      zip.file('xpression-data.json', xpressionDataPayload);
+      if (currentMissingManifest && currentMissingManifest !== emptyMissingManifest) {
+        zip.file('assets-manifest.json', currentMissingManifest);
+      }
+    } else if (target === 'native') {
+      zip.file('xpression-native-plan.txt', xpressionPrimitivePlan);
+      zip.file('xpression-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
+      zip.file('xpression-data.json', xpressionDataPayload);
+      if (currentMissingManifest && currentMissingManifest !== emptyMissingManifest) {
+        zip.file('assets-manifest.json', currentMissingManifest);
+      }
+    } else if (target === 'vizrt') {
+      zip.file('vizrt-native-plan.txt', vizrtScenePlan);
+      zip.file('vizrt-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
+      zip.file('vizrt-data.json', vizrtDataPayload);
+      if (currentMissingManifest && currentMissingManifest !== emptyMissingManifest) {
+        zip.file('vizrt-assets-manifest.json', currentMissingManifest);
+      }
+    } else {
+      zip.file('vizrt-assets.svg', customizedSvg);
+      zip.file('vizrt-assets-manifest.json', currentMissingManifest || emptyMissingManifest);
+    }
+
+    setStatus(`Preparing ${deliveryTargetLabel} package...`);
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const fileName = target === 'template'
+      ? `${downloadBaseName}-xpression-svg-package.zip`
+      : target === 'native'
+        ? `${downloadBaseName}-xpression-native-package.zip`
+        : target === 'vizrt'
+          ? `${downloadBaseName}-vizrt-native-package.zip`
+          : `${downloadBaseName}-vizrt-svg-assets-package.zip`;
+    downloadBlob(blob, fileName);
+    setStatus(`${deliveryTargetLabel} package downloaded.`);
   }
 
   const downloadBaseName = slugFromFileName(figmaSourceLabel, 'figma');
@@ -646,6 +867,14 @@ function App() {
       ? 'XPression SVG Import'
       : 'XPression Native';
   const readinessRiskSummary = activeDeliveryTarget === 'vizrt' || activeDeliveryTarget === 'vizrt-svg' ? vizrtRiskSummary : xpressionRiskSummary;
+  const deliveryChecklist = buildDeliveryChecklist({
+    target: activeDeliveryTarget,
+    warnings: currentWarnings,
+    fontAudit,
+    bindingsManifest: currentBindingsManifest,
+    missingManifest: currentMissingManifest,
+    hasPreview,
+  });
   return (
     <div className="min-h-screen bg-transparent text-espn-slate">
       <main className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5">
@@ -810,10 +1039,8 @@ function App() {
                       <>
                         <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to keep the current SVG-based XPression workflow and map fields onto an imported SVG scene.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadText(xpressionTemplate, `${downloadBaseName}-xpression-template.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download SVG Import Template</button>
+                          <button type="button" onClick={() => void downloadDeliveryPackage('template')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression SVG Package</button>
                           <button type="button" onClick={() => void copyText(xpressionTemplate, 'XPression template copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Template</button>
-                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
-                          <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
                         </div>
                         <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
                       </>
@@ -823,10 +1050,8 @@ function App() {
                       <>
                         <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in XPression with slabs, text objects, image objects, masks, and material/effect stacks.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadText(xpressionPrimitivePlan, `${downloadBaseName}-xpression-native-primitives.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression Native Plan</button>
+                          <button type="button" onClick={() => void downloadDeliveryPackage('native')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression Native Package</button>
                           <button type="button" onClick={() => void copyText(xpressionPrimitivePlan, 'XPression native primitives plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy XPression Plan</button>
-                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-xpression-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
-                          <button type="button" onClick={() => downloadText(xpressionDataPayload, `${downloadBaseName}-xpression-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Data Payload</button>
                         </div>
                         <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionPrimitivePlan}</pre>
                       </>
@@ -836,10 +1061,8 @@ function App() {
                       <>
                         <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in Viz Artist with containers, text objects, image materials, shapes, and effect stacks instead of importing SVG.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadText(vizrtScenePlan, `${downloadBaseName}-vizrt-native-plan.txt`, 'text/plain')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt Native Plan</button>
+                          <button type="button" onClick={() => void downloadDeliveryPackage('vizrt')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt Native Package</button>
                           <button type="button" onClick={() => void copyText(vizrtScenePlan, 'Vizrt native build plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Vizrt Plan</button>
-                          <button type="button" onClick={() => downloadText(JSON.stringify(currentBindingsManifest, null, 2), `${downloadBaseName}-vizrt-bindings.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Bindings Map</button>
-                          <button type="button" onClick={() => downloadText(vizrtDataPayload, `${downloadBaseName}-vizrt-data.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Vizrt Data Payload</button>
                         </div>
                         <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{vizrtScenePlan}</pre>
                       </>
@@ -849,8 +1072,7 @@ function App() {
                       <>
                         <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when Viz needs SVG artwork as reference or static vector assets. This is not the same as the XPression SVG import workflow and should be treated as an asset export, not a bindable scene handoff.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadText(customizedSvg, `${downloadBaseName}-vizrt-assets.svg`, 'image/svg+xml')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt SVG</button>
-                          <button type="button" onClick={() => downloadText(currentMissingManifest || '{\n  "imageRefs": {}\n}', `${downloadBaseName}-vizrt-assets-manifest.json`, 'application/json')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Download Vizrt Asset Manifest</button>
+                          <button type="button" onClick={() => void downloadDeliveryPackage('vizrt-svg')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt SVG Asset Package</button>
                         </div>
                         <pre className="min-w-0 max-w-full overflow-auto whitespace-pre-wrap break-all rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{customizedSvg || 'No Vizrt SVG asset export yet.'}</pre>
                       </>
@@ -858,7 +1080,7 @@ function App() {
                   </div>
                 </section>
 
-                <section className="min-w-0 rounded-[18px] border border-espn-border bg-white shadow-panel xl:sticky xl:top-3">
+                <section className="min-w-0 rounded-[18px] border border-espn-border bg-white shadow-panel xl:sticky xl:top-3 xl:flex xl:h-[calc(100vh-1.5rem)] xl:flex-col xl:overflow-hidden">
                   <div className="border-b border-espn-border px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
@@ -873,7 +1095,7 @@ function App() {
                       </div>
                     </div>
                   </div>
-                  <div className="min-w-0 px-4 py-4">
+                  <div className="min-w-0 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2">
                     {activeInspectorTab === 'readiness' ? (
                       <div className="space-y-3">
                         <div className="rounded-2xl bg-[#f7f7f7] p-3">
@@ -883,6 +1105,7 @@ function App() {
                             Shared tabs like Bindings, Fonts, and Prep stay tied to the source graphic. This Readiness view adapts to the selected delivery path.
                           </p>
                         </div>
+                        <DeliveryChecklistCard title={`${deliveryTargetLabel} checklist`} items={deliveryChecklist} />
                         <MetricGroup title={`${deliveryTargetLabel} risks`} items={readinessRiskSummary.length > 0 ? readinessRiskSummary : [`No ${deliveryTargetLabel.toLowerCase()} compatibility risks detected in the supported feature set`]} />
                         <MetricGroup
                           title="Binding validation"
@@ -968,16 +1191,38 @@ function App() {
 }
 
 function MetricGroup({ title, items }: { title: string; items: string[] }) {
+  const shouldScroll = items.length > 8;
   return (
     <div className="rounded-2xl bg-[#f7f7f7] p-3">
       <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-espn-muted">{title}</h4>
-      <ul className="mt-2 flex flex-wrap gap-1.5">
+      <ul className={`mt-2 flex flex-wrap gap-1.5 ${shouldScroll ? 'max-h-32 overflow-y-auto pr-1' : ''}`}>
         {items.map((item, index) => (
           <li key={`${title}-${index}-${item}`} className="rounded-full bg-white px-2.5 py-1 text-[11px] text-espn-slate">
             {item}
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function DeliveryChecklistCard({ title, items }: { title: string; items: DeliveryChecklistItem[] }) {
+  return (
+    <div className="rounded-2xl bg-[#f7f7f7] p-3">
+      <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-espn-muted">{title}</h4>
+      <div className="mt-2 space-y-2">
+        {items.map((item) => (
+          <div key={`${item.title}-${item.status}`} className="rounded-2xl bg-white p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-espn-slate">{item.title}</p>
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${item.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : item.status === 'attention' ? 'bg-red-100 text-espn-red' : 'bg-zinc-200 text-espn-slate'}`}>
+                {item.status}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-espn-muted">{item.detail}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
