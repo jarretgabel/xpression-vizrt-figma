@@ -22,6 +22,7 @@ const fontSubstitutions = parseFontSubstitutionEnv(import.meta.env.VITE_FONT_SUB
 const previewFontStylesheet = 'https://a.espncdn.com/combiner/c?css=fonts/bentonsans.css,fonts/bentonsansmedium.css,fonts/bentonsansbold.css,pagetype/otl/tungsten/tungsten_700.css,pagetype/otl/tungsten/tungsten_600.css';
 const previewIgniteStylesheet = 'https://a.espncdn.com/prod/fonts/ESPNIgnite/ignite.css';
 const emptyMissingManifest = '{\n  "imageRefs": {}\n}';
+const previewDocumentBase = typeof document === 'undefined' ? './' : document.baseURI;
 
 type DeliveryTarget = 'template' | 'native' | 'vizrt' | 'vizrt-svg';
 type ChecklistStatus = 'ready' | 'attention' | 'info';
@@ -32,11 +33,7 @@ type DeliveryChecklistItem = {
 };
 
 function previewAssetUrl(path: string) {
-  if (typeof window === 'undefined') {
-    return path;
-  }
-
-  return new URL(path.replace(/^\//, ''), document.baseURI).toString();
+  return path.replace(/^\//, '');
 }
 
 function buildDeliveryChecklist({
@@ -268,6 +265,7 @@ function buildPreviewDocument(svg: string) {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="${previewDocumentBase}" />
     <link rel="stylesheet" href="${previewFontStylesheet}" />
     <link rel="stylesheet" href="${previewIgniteStylesheet}" />
     <style>
