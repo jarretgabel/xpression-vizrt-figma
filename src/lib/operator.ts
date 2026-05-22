@@ -136,32 +136,29 @@ function textElementY(element: Element, fallbackY?: number) {
   return fallbackY ?? 0;
 }
 
+function horizontalScaleForElement(element: Element) {
+  const transform = element.getAttribute('transform') || '';
+  const match = transform.match(/scale\(\s*([0-9.+-eE]+)/);
+  if (!match) {
+    return 1;
+  }
+
+  const scale = Number(match[1]);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
 function measureTextWidth(element: Element) {
   try {
     const svgElement = element as unknown as SVGGraphicsElement;
     const box = svgElement.getBBox();
     if (box.width > 0) {
-      return box.width;
+      return box.width * horizontalScaleForElement(element);
     }
   } catch {
     // Fall back to the DOM box when SVG metrics are unavailable.
   }
 
   return element.getBoundingClientRect().width;
-}
-
-function measureTextHeight(element: Element) {
-  try {
-    const svgElement = element as unknown as SVGGraphicsElement;
-    const box = svgElement.getBBox();
-    if (box.height > 0) {
-      return box.height;
-    }
-  } catch {
-    // Fall back to the DOM box when SVG metrics are unavailable.
-  }
-
-  return element.getBoundingClientRect().height;
 }
 
 function measureSpaceWidth(referenceElement: Element) {
@@ -221,10 +218,11 @@ function applyTextFlowLayout(svgRoot: Element, manifest: DynamicBindingsManifest
     const nextX = previousX + previousWidth + nextGap;
     setTextX(currentElement, nextX);
 
+    const previousOriginalY = textElementY(previousElement, previousItem.y);
+    const currentOriginalY = textElementY(currentElement, item.y);
     const previousY = textElementY(previousElement, previousItem.y);
-    const previousHeight = measureTextHeight(previousElement);
-    const currentHeight = measureTextHeight(currentElement);
-    const nextY = previousY + previousHeight - currentHeight + (item.flowBottomOffset ?? 0);
+    const baselineDelta = currentOriginalY - previousOriginalY;
+    const nextY = previousY + baselineDelta;
     setTextY(currentElement, nextY);
   }
 }
