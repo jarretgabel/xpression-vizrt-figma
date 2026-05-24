@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import { convertFigmaJsonToSvg, preferredFontFamilyForStyle } from '../lib/convert-figma-json-to-svg.mjs';
+import bentonSansRegularWoffUrl from './assets/fonts/bentonsans.woff?url';
+import bentonSansRegularWoff2Url from './assets/fonts/bentonsans.woff2?url';
+import bentonSansRegularTtfUrl from './assets/fonts/bentonsans.ttf?url';
 import bentonSansBlackTtfUrl from './assets/fonts/bentonsansblack.ttf?url';
 import bentonSansBlackWoffUrl from './assets/fonts/bentonsansblack.woff?url';
 import bentonSansBlackWoff2Url from './assets/fonts/bentonsansblack.woff2?url';
+import bentonSansBoldTtfUrl from './assets/fonts/bentonsansbold.ttf?url';
 import bentonSansBookTtfUrl from './assets/fonts/bentonsansbook.ttf?url';
 import bentonSansBookWoffUrl from './assets/fonts/bentonsansbook.woff?url';
 import bentonSansCondBoldTtfUrl from './assets/fonts/bentonsanscondbold.ttf?url';
@@ -12,6 +16,7 @@ import bentonSansCondBookWoffUrl from './assets/fonts/bentonsanscondbook.woff?ur
 import bentonSansCondMediumTtfUrl from './assets/fonts/bentonsanscondmedium.ttf?url';
 import bentonSansCondTtfUrl from './assets/fonts/bentonsanscond.ttf?url';
 import bentonSansLightTtfUrl from './assets/fonts/bentonsanslight.ttf?url';
+import bentonSansMediumTtfUrl from './assets/fonts/bentonsansmedium.ttf?url';
 import bentonSansThinTtfUrl from './assets/fonts/bentonsansthin.ttf?url';
 import bentonSansThinWoffUrl from './assets/fonts/bentonsansthin.woff?url';
 import {
@@ -32,10 +37,108 @@ import type { ConverterWarnings, DynamicBindingsManifest, FigmaNode, FigmaSource
 
 const defaultToken = import.meta.env.VITE_FIGMA_TOKEN?.trim() ?? '';
 const fontSubstitutions = parseFontSubstitutionEnv(import.meta.env.VITE_FONT_SUBSTITUTIONS);
-const previewFontStylesheet = 'https://a.espncdn.com/combiner/c?css=fonts/bentonsans.css,fonts/bentonsansmedium.css,fonts/bentonsansbold.css,pagetype/otl/tungsten/tungsten_700.css,pagetype/otl/tungsten/tungsten_600.css';
+const previewFallbackFontStylesheet = 'https://a.espncdn.com/combiner/c?css=pagetype/otl/tungsten/tungsten_700.css,pagetype/otl/tungsten/tungsten_600.css';
 const previewIgniteStylesheet = 'https://a.espncdn.com/prod/fonts/ESPNIgnite/ignite.css';
 const emptyMissingManifest = '{\n  "imageRefs": {}\n}';
 const previewDocumentBase = typeof document === 'undefined' ? './' : document.baseURI;
+const localFontStyleElementId = 'figma-to-xpression-local-font-faces';
+
+const localFontFaceCss = `
+  @font-face {
+    font-family: 'BentonSans';
+    src: url('${bentonSansRegularWoff2Url}') format('woff2'),
+      url('${bentonSansRegularWoffUrl}') format('woff'),
+      url('${bentonSansRegularTtfUrl}') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansMedium';
+    src: url('${bentonSansMediumTtfUrl}') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansBold';
+    src: url('${bentonSansBoldTtfUrl}') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansBook';
+    src: url('${bentonSansBookWoffUrl}') format('woff'),
+      url('${bentonSansBookTtfUrl}') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansLight';
+    src: url('${bentonSansLightTtfUrl}') format('truetype');
+    font-weight: 300;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansThin';
+    src: url('${bentonSansThinWoffUrl}') format('woff'),
+      url('${bentonSansThinTtfUrl}') format('truetype');
+    font-weight: 200;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansBlack';
+    src: url('${bentonSansBlackWoff2Url}') format('woff2'),
+      url('${bentonSansBlackWoffUrl}') format('woff'),
+      url('${bentonSansBlackTtfUrl}') format('truetype');
+    font-weight: 900;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansCond';
+    src: url('${bentonSansCondTtfUrl}') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansCondBook';
+    src: url('${bentonSansCondBookWoffUrl}') format('woff'),
+      url('${bentonSansCondBookTtfUrl}') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansCondMedium';
+    src: url('${bentonSansCondMediumTtfUrl}') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+  }
+
+  @font-face {
+    font-family: 'BentonSansCondBold';
+    src: url('${bentonSansCondBoldTtfUrl}') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+  }
+`;
+
+function ensureLocalFontFaces(documentRef: Document) {
+  if (documentRef.getElementById(localFontStyleElementId)) {
+    return;
+  }
+
+  const style = documentRef.createElement('style');
+  style.id = localFontStyleElementId;
+  style.textContent = localFontFaceCss;
+  documentRef.head.appendChild(style);
+}
 
 type DeliveryTarget = 'template' | 'native' | 'vizrt' | 'vizrt-svg';
 type ChecklistStatus = 'ready' | 'attention' | 'info';
@@ -288,6 +391,7 @@ async function measureFontBaselineMetrics(source: FigmaSource) {
     return undefined;
   }
 
+  ensureLocalFontFaces(document);
   await document.fonts.ready;
 
   const firstNodeKey = Object.keys(source.nodes || {})[0];
@@ -307,30 +411,66 @@ async function measureFontBaselineMetrics(source: FigmaSource) {
     }
   });
 
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  if (!context) {
-    return undefined;
-  }
+  const probeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  probeSvg.setAttribute('width', '0');
+  probeSvg.setAttribute('height', '0');
+  probeSvg.setAttribute('aria-hidden', 'true');
+  probeSvg.style.position = 'absolute';
+  probeSvg.style.left = '-10000px';
+  probeSvg.style.top = '-10000px';
+  probeSvg.style.overflow = 'visible';
+  probeSvg.style.opacity = '0';
+  probeSvg.style.pointerEvents = 'none';
+  document.body.appendChild(probeSvg);
 
   const metrics: Record<string, { ascentRatio: number; descentRatio: number; capHeightRatio: number }> = {};
-  for (const family of families) {
-    if (!family || !document.fonts.check(`100px "${family}"`)) {
-      continue;
-    }
+  try {
+    for (const family of families) {
+      if (!family || !document.fonts.check(`100px "${family}"`)) {
+        continue;
+      }
 
-    context.font = `100px "${family}"`;
-    const sample = context.measureText('HAgjpQ');
-    const caps = context.measureText('H');
-    if (!sample.actualBoundingBoxAscent || !sample.actualBoundingBoxDescent) {
-      continue;
-    }
+      const sampleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      sampleText.setAttribute('x', '0');
+      sampleText.setAttribute('y', '100');
+      sampleText.setAttribute('font-family', family);
+      sampleText.setAttribute('font-size', '100');
+      sampleText.setAttribute('dominant-baseline', 'alphabetic');
+      sampleText.textContent = 'HAgjpQ';
+      probeSvg.appendChild(sampleText);
 
-    metrics[family] = {
-      ascentRatio: sample.actualBoundingBoxAscent / 100,
-      descentRatio: sample.actualBoundingBoxDescent / 100,
-      capHeightRatio: (caps.actualBoundingBoxAscent || sample.actualBoundingBoxAscent) / 100,
-    };
+      const capText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      capText.setAttribute('x', '0');
+      capText.setAttribute('y', '100');
+      capText.setAttribute('font-family', family);
+      capText.setAttribute('font-size', '100');
+      capText.setAttribute('dominant-baseline', 'alphabetic');
+      capText.textContent = 'H';
+      probeSvg.appendChild(capText);
+
+      try {
+        const sampleBox = sampleText.getBBox();
+        const capBox = capText.getBBox();
+        const ascent = 100 - sampleBox.y;
+        const descent = (sampleBox.y + sampleBox.height) - 100;
+        const capHeight = 100 - capBox.y;
+
+        if (ascent <= 0 || descent < 0) {
+          continue;
+        }
+
+        metrics[family] = {
+          ascentRatio: ascent / 100,
+          descentRatio: descent / 100,
+          capHeightRatio: (capHeight > 0 ? capHeight : ascent) / 100,
+        };
+      } finally {
+        sampleText.remove();
+        capText.remove();
+      }
+    }
+  } finally {
+    probeSvg.remove();
   }
 
   return Object.keys(metrics).length > 0 ? metrics : undefined;
@@ -343,69 +483,10 @@ function buildPreviewDocument(svg: string) {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="${previewDocumentBase}" />
-    <link rel="stylesheet" href="${previewFontStylesheet}" />
+    <link rel="stylesheet" href="${previewFallbackFontStylesheet}" />
     <link rel="stylesheet" href="${previewIgniteStylesheet}" />
     <style>
-      @font-face {
-        font-family: 'BentonSansBook';
-         src: url('${bentonSansBookWoffUrl}') format('woff'),
-           url('${bentonSansBookTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansLight';
-        src: url('${bentonSansLightTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansThin';
-         src: url('${bentonSansThinWoffUrl}') format('woff'),
-           url('${bentonSansThinTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansBlack';
-         src: url('${bentonSansBlackWoff2Url}') format('woff2'),
-           url('${bentonSansBlackWoffUrl}') format('woff'),
-           url('${bentonSansBlackTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansCond';
-        src: url('${bentonSansCondTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansCondBook';
-         src: url('${bentonSansCondBookWoffUrl}') format('woff'),
-           url('${bentonSansCondBookTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansCondMedium';
-        src: url('${bentonSansCondMediumTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
-
-      @font-face {
-        font-family: 'BentonSansCondBold';
-        src: url('${bentonSansCondBoldTtfUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-      }
+      ${localFontFaceCss}
 
       html, body {
         margin: 0;
@@ -420,9 +501,9 @@ function buildPreviewDocument(svg: string) {
       }
 
       /*
-       * Preview-only font aliases. ESPN's stylesheet exposes Benton/Tungsten
-       * under webfont family names that do not always match the families
-       * coming through from Figma, so map the common exported names here.
+      * Preview-only font aliases. Prefer shipped local faces first, then fall
+      * back to remote-only families such as Tungsten when they are not part
+      * of the repo font bundle.
        */
       svg text,
       svg tspan {
@@ -663,6 +744,10 @@ function App() {
   const [fontAudit, setFontAudit] = useState<FontAuditItem[]>([]);
   const [imageRefs, setImageRefs] = useState<string[]>([]);
   const [prepChecklist, setPrepChecklist] = useState<XpressionPrepItem[]>([]);
+
+  useEffect(() => {
+    ensureLocalFontFaces(document);
+  }, []);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [figmaPreviewSvg, setFigmaPreviewSvg] = useState('');
   const [figmaPreviewUrl, setFigmaPreviewUrl] = useState<string | null>(null);
@@ -1021,14 +1106,14 @@ function App() {
               />
             </label>
             <button type="button" onClick={() => {
-              void copyShareLink();
-            }} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
-              Copy Share Link
-            </button>
-            <button type="button" onClick={() => {
               void generateFromApi();
             }} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
               Generate Preview
+            </button>
+            <button type="button" onClick={() => {
+              void copyShareLink();
+            }} className="h-10 rounded-xl border border-espn-border bg-[#f5f6f7] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">
+              Copy Share Link
             </button>
           </div>
 
