@@ -43,6 +43,18 @@ const emptyMissingManifest = '{\n  "imageRefs": {}\n}';
 const previewDocumentBase = typeof document === 'undefined' ? './' : document.baseURI;
 const localFontStyleElementId = 'figma-to-xpression-local-font-faces';
 
+function metricFamilyForPreferredFamily(family: string) {
+  if (/^ESPN Ignite Display Sans$/i.test(family)) {
+    return 'ESPN Ignite Display Web';
+  }
+
+  if (/^ESPN Ignite Text$/i.test(family)) {
+    return 'ESPN Ignite Text Web';
+  }
+
+  return family;
+}
+
 const localFontFaceCss = `
   @font-face {
     font-family: 'BentonSans';
@@ -426,14 +438,15 @@ async function measureFontBaselineMetrics(source: FigmaSource) {
   const metrics: Record<string, { ascentRatio: number; descentRatio: number; capHeightRatio: number }> = {};
   try {
     for (const family of families) {
-      if (!family || !document.fonts.check(`100px "${family}"`)) {
+      const metricFamily = metricFamilyForPreferredFamily(family);
+      if (!metricFamily || !document.fonts.check(`100px "${metricFamily}"`)) {
         continue;
       }
 
       const sampleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       sampleText.setAttribute('x', '0');
       sampleText.setAttribute('y', '100');
-      sampleText.setAttribute('font-family', family);
+      sampleText.setAttribute('font-family', metricFamily);
       sampleText.setAttribute('font-size', '100');
       sampleText.setAttribute('dominant-baseline', 'alphabetic');
       sampleText.textContent = 'HAgjpQ';
@@ -442,7 +455,7 @@ async function measureFontBaselineMetrics(source: FigmaSource) {
       const capText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       capText.setAttribute('x', '0');
       capText.setAttribute('y', '100');
-      capText.setAttribute('font-family', family);
+      capText.setAttribute('font-family', metricFamily);
       capText.setAttribute('font-size', '100');
       capText.setAttribute('dominant-baseline', 'alphabetic');
       capText.textContent = 'H';

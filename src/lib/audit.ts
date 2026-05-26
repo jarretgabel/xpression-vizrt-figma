@@ -23,13 +23,25 @@ function firstRoot(source: FigmaSource) {
   return source.nodes?.[firstNodeKey]?.document;
 }
 
+function browserCheckFamily(fontFamily: string) {
+  if (/^ESPN Ignite Display Sans$/i.test(fontFamily)) {
+    return 'ESPN Ignite Display Web';
+  }
+
+  if (/^ESPN Ignite Text$/i.test(fontFamily)) {
+    return 'ESPN Ignite Text Web';
+  }
+
+  return fontFamily;
+}
+
 function browserFontAvailable(fontFamily: string) {
   if (typeof document === 'undefined' || !('fonts' in document) || typeof document.fonts.check !== 'function') {
     return null;
   }
 
   try {
-    return document.fonts.check(`12px "${fontFamily}"`);
+    return document.fonts.check(`12px "${browserCheckFamily(fontFamily)}"`);
   } catch {
     return null;
   }
