@@ -160,6 +160,169 @@ type DeliveryChecklistItem = {
   status: ChecklistStatus;
 };
 
+function deliveryPackageReadme(target: DeliveryTarget) {
+  if (target === 'template') {
+    return [
+      'XPression SVG Import Package',
+      '',
+      'Who this is for:',
+      '- Teams still using the imported-SVG workflow inside Ross XPression.',
+      '- Operators and developers who want field mapping guidance without rebuilding the whole scene natively.',
+      '',
+      'Prerequisites:',
+      '- An XPression project/scene that can import the exported artwork or an Illustrator/EPS conversion of it.',
+      '- The destination system fonts and raster assets verified before on-air use.',
+      '',
+      'Files included:',
+      '- graphic.svg: SVG artwork for import/reference.',
+      '- xpression-svg-import-guide.txt: step-by-step import and binding guide.',
+      '- xpression-bindings.json: detected binding candidates and metadata.',
+      '- xpression-data.json: sample payload for the detected fields.',
+      '- checklist.txt: target-aware readiness checklist.',
+      '- report.txt: converter report and compatibility notes.',
+      '',
+      'How to use this package:',
+      '1. Import graphic.svg into XPression or convert it to the format your XPression version expects.',
+      '2. Open xpression-svg-import-guide.txt and review the suggested binding order.',
+      '3. Use xpression-bindings.json to identify the source nodes, field keys, and text/image/color candidates.',
+      '4. Load xpression-data.json as sample data while testing your scene bindings and Visual Logic hooks.',
+      '5. Review checklist.txt and report.txt before calling the handoff finished.',
+      '',
+      'Notes:',
+      '- This path preserves the SVG import workflow; it is not the same as a native scene rebuild.',
+      '- Filter-heavy effects and typography should always be checked in the destination XPression environment.',
+      '',
+      'Suggested workflow:',
+      '1. Import graphic.svg into XPression.',
+      '2. Review the guide and bindings JSON side by side.',
+      '3. Map fields and verify effects/fonts in the target scene.',
+    ].join('\n');
+  }
+
+  if (target === 'native') {
+    return [
+      'XPression Native Package',
+      '',
+      'Who this is for:',
+      '- Teams rebuilding the scene natively in Ross XPression instead of importing SVG directly.',
+      '- Developers and artists who need a structured scene/object guide plus live-field metadata.',
+      '',
+      'Prerequisites:',
+      '- A destination XPression project with the required fonts and logos available.',
+      '- Comfort rebuilding gradients, effects, and flow relationships natively.',
+      '',
+      'Files included:',
+      '- xpression-native-guide.txt: step-by-step native build guide.',
+      '- xpression-bindings.json: detected binding candidates and metadata.',
+      '- xpression-data.json: sample payload for the detected fields.',
+      '- checklist.txt: target-aware readiness checklist.',
+      '- report.txt: converter report and compatibility notes.',
+      '',
+      'Implementation steps:',
+      '1. Unzip the package and keep xpression-native-guide.txt, xpression-bindings.json, xpression-data.json, checklist.txt, and report.txt open together.',
+      '2. Read checklist.txt and report.txt first to identify any font, asset, transform, or effect issues that need manual handling during the rebuild.',
+      '3. Follow xpression-native-guide.txt in order: create scene scaffolding first, then shapes, then text/images, then relative flow adjustments.',
+      '4. Use xpression-bindings.json to verify each object\'s intended field key, source node, and binding type while you build.',
+      '5. Load xpression-data.json as sample data while wiring scene logic and validating that each mapped field updates the correct object.',
+      '6. Recreate blur, gradient, glow, and inner-shadow looks natively in XPression, then compare the rebuilt scene against Figma before signoff.',
+      '',
+      'Notes:',
+      '- The guide is implementation guidance, not directly runnable XPression code.',
+      '- Native recreation is the preferred path when SVG filter or fidelity limitations are too high.',
+      '',
+      'Suggested workflow:',
+      '1. Read the native guide from top to bottom once before building.',
+      '2. Create primitives, text, and image objects in the suggested order.',
+      '3. Wire fields with the bindings/data files and then recreate effects natively.',
+    ].join('\n');
+  }
+
+  if (target === 'vizrt') {
+    return [
+      'Vizrt Native Package',
+      '',
+      'Who this is for:',
+      '- Teams rebuilding the scene in Viz Artist rather than relying on imported SVG behavior.',
+      '- Developers and artists wiring fields through DataPool, Trio, script logic, or equivalent control layers.',
+      '',
+      'Prerequisites:',
+      '- A Viz Artist scene/package with access to the target fonts, textures, and control-layer setup.',
+      '- Comfort recreating gradients, glows, blur, and inner shadows with Viz-native tools.',
+      '',
+      'Files included:',
+      '- vizrt-native-guide.txt: step-by-step Viz Artist build guide.',
+      '- vizrt-bindings.json: detected binding candidates and metadata.',
+      '- vizrt-data.json: sample payload for the detected fields.',
+      '- checklist.txt: target-aware readiness checklist.',
+      '- report.txt: converter report and compatibility notes.',
+      '',
+      'Implementation steps:',
+      '1. Unzip the package and keep vizrt-native-guide.txt, vizrt-bindings.json, vizrt-data.json, checklist.txt, and report.txt open together.',
+      '2. Read checklist.txt and report.txt first to identify any font, texture, effect, or compatibility issues that need manual handling in Viz Artist.',
+      '3. Follow vizrt-native-guide.txt in order: create scene scaffolding first, then background shapes, then text/images/material slots, then relative flow adjustments.',
+      '4. Use vizrt-bindings.json to confirm which fields should map to text, image, color, DataPool, Trio, or other control-layer inputs.',
+      '5. Load vizrt-data.json as sample data while wiring the scene and validating that each field updates the correct container or object.',
+      '6. Rebuild gradients, blur, glow, and inner-shadow looks with Viz-native materials/effects, then verify timing and operator control before signoff.',
+      '',
+      'Notes:',
+      '- The guide is a build aid, not a direct Viz Artist import artifact.',
+      '- Expect final human tuning for materials, effects, and timing inside Viz.',
+      '',
+      'Suggested workflow:',
+      '1. Read the native guide before building the scene.',
+      '2. Create the scene structure and objects in the suggested order.',
+      '3. Connect fields through DataPool/Trio/script logic and recreate effects natively.',
+    ].join('\n');
+  }
+
+  return [
+    'Vizrt SVG Asset Package',
+    '',
+    'Who this is for:',
+    '- Teams that need SVG artwork as a static asset or visual reference in Viz workflows.',
+    '- Workflows that are not treating this export as a bindable native scene.',
+    '',
+    'Prerequisites:',
+    '- A downstream Viz workflow that knows how the exported SVG and referenced assets will be consumed.',
+    '',
+    'Files included:',
+    '- vizrt-assets.svg: exported SVG artwork.',
+    '- vizrt-assets-manifest.json: asset/image reference manifest.',
+    '- checklist.txt: target-aware readiness checklist.',
+    '- report.txt: converter report and compatibility notes.',
+    '',
+    'How to use this package:',
+    '1. Treat vizrt-assets.svg as static/reference artwork rather than a bindable native scene.',
+    '2. Use vizrt-assets-manifest.json to resolve any external asset expectations in the downstream workflow.',
+    '3. Review checklist.txt and report.txt for anything that still requires manual verification.',
+    '',
+    'Notes:',
+    '- This package is intentionally different from both the XPression SVG import path and the Vizrt native rebuild path.',
+    '',
+    'Suggested workflow:',
+    '1. Treat this package as static/reference artwork, not a bindable scene handoff.',
+    '2. Verify the SVG and assets in the downstream Viz workflow.',
+  ].join('\n');
+}
+
+function frontendReferencePreview(referenceText: string) {
+  const markers = [
+    '\n// Generated object outline',
+    '\n// Generated scene outline',
+    '\n// Generated binding template outline',
+  ];
+  const firstMarkerIndex = markers
+    .map((marker) => referenceText.indexOf(marker))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0];
+
+  if (firstMarkerIndex === undefined) {
+    return referenceText;
+  }
+
+  return referenceText.slice(firstMarkerIndex + 1).trimStart();
+}
+
 function fontChecklistDetail(fontAudit: FontAuditItem[], targetLabel: string) {
   const issues = fontAudit.flatMap((item) => {
     const itemIssues: string[] = [];
@@ -775,6 +938,9 @@ function App() {
   const xpressionTemplate = useMemo(() => buildXpressionTemplate(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
   const xpressionPrimitivePlan = useMemo(() => buildXpressionPrimitivePlan(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
   const vizrtScenePlan = useMemo(() => buildVizrtScenePlan(currentBindingsManifest, operatorValues, customizedSvg), [currentBindingsManifest, operatorValues, customizedSvg]);
+  const xpressionTemplateReference = useMemo(() => frontendReferencePreview(xpressionTemplate), [xpressionTemplate]);
+  const xpressionNativeReference = useMemo(() => frontendReferencePreview(xpressionPrimitivePlan), [xpressionPrimitivePlan]);
+  const vizrtNativeReference = useMemo(() => frontendReferencePreview(vizrtScenePlan), [vizrtScenePlan]);
   const hasPreview = Boolean(currentSvg);
   const hasMeaningfulStatus = Boolean(status) && !status.startsWith('Waiting for a Figma URL');
 
@@ -1033,11 +1199,13 @@ function App() {
       .map((item) => `[${item.status.toUpperCase()}] ${item.title}\n${item.detail}`)
       .join('\n\n');
 
+    zip.file('README.txt', deliveryPackageReadme(target));
     zip.file('report.txt', currentReport);
     zip.file('checklist.txt', checklistText);
 
     if (target === 'template') {
       zip.file('graphic.svg', currentSvg);
+      zip.file('xpression-svg-import-guide.txt', xpressionTemplate);
       zip.file('xpression-svg-import-template.txt', xpressionTemplate);
       zip.file('xpression-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
       zip.file('xpression-data.json', xpressionDataPayload);
@@ -1045,14 +1213,14 @@ function App() {
         zip.file('assets-manifest.json', currentMissingManifest);
       }
     } else if (target === 'native') {
-      zip.file('xpression-native-plan.txt', xpressionPrimitivePlan);
+      zip.file('xpression-native-guide.txt', xpressionPrimitivePlan);
       zip.file('xpression-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
       zip.file('xpression-data.json', xpressionDataPayload);
       if (currentMissingManifest && currentMissingManifest !== emptyMissingManifest) {
         zip.file('assets-manifest.json', currentMissingManifest);
       }
     } else if (target === 'vizrt') {
-      zip.file('vizrt-native-plan.txt', vizrtScenePlan);
+      zip.file('vizrt-native-guide.txt', vizrtScenePlan);
       zip.file('vizrt-bindings.json', JSON.stringify(currentBindingsManifest, null, 2));
       zip.file('vizrt-data.json', vizrtDataPayload);
       if (currentMissingManifest && currentMissingManifest !== emptyMissingManifest) {
@@ -1263,34 +1431,34 @@ function App() {
 
                     {activeOutputPanel === 'template' ? (
                       <>
-                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to keep the current SVG-based XPression workflow and map fields onto an imported SVG scene.</p>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this for the SVG-based XPression workflow. The inline view shows the generated reference outline; the download package includes the implementation guide.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
                           <button type="button" onClick={() => void downloadDeliveryPackage('template')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression SVG Package</button>
-                          <button type="button" onClick={() => void copyText(xpressionTemplate, 'XPression template copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Template</button>
+                          <button type="button" onClick={() => void copyText(xpressionTemplateReference, 'XPression SVG import reference copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Template</button>
                         </div>
-                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplate}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionTemplateReference}</pre>
                       </>
                     ) : null}
 
                     {activeOutputPanel === 'native' ? (
                       <>
-                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in XPression with slabs, text objects, image objects, masks, and material/effect stacks.</p>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this for native XPression rebuilds. The inline view shows the generated reference outline; the download package includes the implementation guide.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
                           <button type="button" onClick={() => void downloadDeliveryPackage('native')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download XPression Native Package</button>
-                          <button type="button" onClick={() => void copyText(xpressionPrimitivePlan, 'XPression native primitives plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy XPression Plan</button>
+                          <button type="button" onClick={() => void copyText(xpressionNativeReference, 'XPression native reference copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy XPression Reference</button>
                         </div>
-                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionPrimitivePlan}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{xpressionNativeReference}</pre>
                       </>
                     ) : null}
 
                     {activeOutputPanel === 'vizrt' ? (
                       <>
-                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this when you want to rebuild the graphic natively in Viz Artist with containers, text objects, image materials, shapes, and effect stacks instead of importing SVG.</p>
+                        <p className="mb-3 text-xs leading-5 text-espn-muted">Use this for native Viz Artist rebuilds. The inline view shows the generated reference outline; the download package includes the implementation guide.</p>
                         <div className="mb-3 flex flex-wrap gap-1.5">
                           <button type="button" onClick={() => void downloadDeliveryPackage('vizrt')} className="rounded-xl border border-espn-red bg-espn-red px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(194,32,38,0.22)] transition hover:bg-[#a91b20] hover:border-[#a91b20]">Download Vizrt Native Package</button>
-                          <button type="button" onClick={() => void copyText(vizrtScenePlan, 'Vizrt native build plan copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Vizrt Plan</button>
+                          <button type="button" onClick={() => void copyText(vizrtNativeReference, 'Vizrt native reference copied to clipboard.')} className="rounded-xl border border-espn-border bg-[#f5f6f7] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-espn-slate">Copy Vizrt Reference</button>
                         </div>
-                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{vizrtScenePlan}</pre>
+                        <pre className="max-w-full overflow-auto rounded-2xl bg-[#141414] p-4 text-[11px] leading-5 text-espn-offwhite">{vizrtNativeReference}</pre>
                       </>
                     ) : null}
 

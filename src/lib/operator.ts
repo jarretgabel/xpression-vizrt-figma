@@ -537,7 +537,7 @@ function vizrtObjectLine(item: DynamicBindingItem, value: string, metadata?: Svg
 
 export function buildXpressionPrimitivePlan(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
   if (!manifest) {
-    return 'No native XPression primitives plan yet.';
+    return 'No native XPression build guide yet.';
   }
 
   const dataLines = manifest.items.map((item) => `  ${item.fieldKey}: ${JSON.stringify(values[item.fieldKey] ?? '')},`);
@@ -568,10 +568,31 @@ export function buildXpressionPrimitivePlan(manifest: DynamicBindingsManifest | 
   });
 
   return [
-    '// XPression native primitives/slabs plan',
-    '// Alternative path: rebuild the scene natively in XPression with slabs, text objects, images, masks, and materials.',
+    '// XPression native build guide',
+    '// Step-by-step implementation notes plus a generated object outline for rebuilding this graphic in XPression.',
     '// Keep using the SVG import template when you want to preserve the current SVG-based handoff.',
     '',
+    '// Implementation workflow',
+    '// 1. Unzip the package and open xpression-native-guide.txt, xpression-bindings.json, xpression-data.json, checklist.txt, and report.txt together.',
+    '// 2. Read checklist.txt and report.txt first so you know which fonts, effects, transforms, or raster assets still need manual handling.',
+    '// 3. Open or create the destination XPression project, then create the Banner scene and Root group shown below.',
+    '// 4. Review xpression-bindings.json and xpression-data.json to confirm the live field keys, sample values, and naming you want in the scene.',
+    '',
+    '// Scene build order',
+    '// 5. Create slabs/primitives for panel shapes first, using the generated outline below as the source for names, dimensions, fills, and stacking order.',
+    '// 6. Create text objects and image/logo objects next, matching the source bounds, font metadata, and object names from the outline.',
+    '// 7. If an assets-manifest.json file is present in the zip, use it to relink logos or raster textures before continuing.',
+    '// 8. Apply any relative flow notes after the base objects exist so labels and values stay attached when live data changes.',
+    '',
+    '// Binding and logic',
+    '// 9. Wire text, image, and color fields to scene logic, Visual Logic, or your preferred control layer using the Bind* calls as mapping guidance, not literal runnable code.',
+    '// 10. Load xpression-data.json as sample data and confirm that every mapped field updates the intended object.',
+    '',
+    '// Effects and final pass',
+    '// 11. Recreate inner shadows, blur, gradients, and other noted effects natively inside XPression instead of expecting SVG filter parity.',
+    '// 12. Verify fonts and raster assets on the target system, compare the rebuilt scene against Figma, and sign off only after the checklist items are cleared.',
+    '',
+    '// Generated object outline',
     'const banner = {',
     ...dataLines,
     '};',
@@ -602,7 +623,7 @@ export function buildXpressionDataPayload(manifest: DynamicBindingsManifest | nu
 
 export function buildVizrtScenePlan(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
   if (!manifest) {
-    return 'No Vizrt native scene plan yet.';
+    return 'No Vizrt native build guide yet.';
   }
 
   const dataLines = manifest.items.map((item) => `  ${item.fieldKey}: ${JSON.stringify(values[item.fieldKey] ?? '')},`);
@@ -633,10 +654,31 @@ export function buildVizrtScenePlan(manifest: DynamicBindingsManifest | null, va
   });
 
   return [
-    '// Vizrt native scene build plan',
-    '// Alternative path: rebuild the graphic in Viz Artist with containers, text, images, shapes, and materials.',
-    '// Keep using the XPression tabs when your target is XPression; this plan is a separate Viz-native handoff.',
+    '// Vizrt native build guide',
+    '// Step-by-step implementation notes plus a generated scene outline for rebuilding this graphic in Viz Artist.',
+    '// Keep using the XPression tabs when your target is XPression; this guide is a separate Viz-native handoff.',
     '',
+    '// Implementation workflow',
+    '// 1. Unzip the package and open vizrt-native-guide.txt, vizrt-bindings.json, vizrt-data.json, checklist.txt, and report.txt together.',
+    '// 2. Read checklist.txt and report.txt first so you know which fonts, textures, effects, or unsupported details still need manual handling in Viz.',
+    '// 3. Open or create the Viz Artist scene, then create the Banner scene and Root container shown below.',
+    '// 4. Review vizrt-bindings.json and vizrt-data.json to confirm the live field keys, sample values, and control-layer naming you want to drive.',
+    '',
+    '// Scene build order',
+    '// 5. Build the panel/background shapes first, using the generated outline below for names, bounds, stacking order, and role.',
+    '// 6. Add text objects, images, and material-driven elements next, matching the metadata and sample values in the outline.',
+    '// 7. If a vizrt-assets-manifest.json file is present in the zip, use it to resolve referenced textures or external assets before wiring control logic.',
+    '// 8. Apply any relative text flow notes after the base objects exist so dependent labels stay aligned when data changes.',
+    '',
+    '// Binding and logic',
+    '// 9. Use the BindViz* calls as a guide for how each field should map into DataPool, Trio, script logic, or your preferred control layer.',
+    '// 10. Load vizrt-data.json as sample data and confirm that every field updates the intended container, text object, or material slot.',
+    '',
+    '// Effects and final pass',
+    '// 11. Recreate gradients, blur, glow, and inner-shadow looks with Viz materials/effects instead of relying on imported SVG filter behavior.',
+    '// 12. Verify fonts, textures, scene timing, and control-layer behavior in Viz before handoff to control-room workflows.',
+    '',
+    '// Generated scene outline',
     'const banner = {',
     ...dataLines,
     '};',
@@ -668,7 +710,7 @@ export function buildVizrtDataPayload(manifest: DynamicBindingsManifest | null, 
 
 export function buildXpressionTemplate(manifest: DynamicBindingsManifest | null, values: OperatorValues, svg?: string | null) {
   if (!manifest) {
-    return 'No XPression template yet.';
+    return 'No XPression SVG import guide yet.';
   }
 
   const dataLines = manifest.items.map((item) => `  ${item.fieldKey}: ${JSON.stringify(values[item.fieldKey] ?? '')},`);
@@ -684,9 +726,22 @@ export function buildXpressionTemplate(manifest: DynamicBindingsManifest | null,
   const innerShadowLines = innerShadowTemplateLines(svg || null);
 
   return [
-    '// XPression binding template preview',
-    '// Use this as a handoff/mapping guide. Adjust to your XPression scene and Visual Logic runtime.',
+    '// XPression SVG import guide',
+    '// Step-by-step import notes plus a generated binding template outline for the SVG workflow.',
     '',
+    '// Setup',
+    '// 1. Import graphic.svg into XPression, or use Illustrator/EPS conversion first if your XPression version needs that step.',
+    '// 2. Review xpression-bindings.json and xpression-data.json to confirm the live fields and sample values you want to map.',
+    '',
+    '// Binding order',
+    '// 3. Bind the imported SVG elements to your scene fields using the generated template lines below as a mapping guide.',
+    '// 4. Apply any relative text flow notes after the base mappings exist so labels and values stay attached when data changes.',
+    '',
+    '// Effects and validation',
+    '// 5. Recreate or verify blur and inner-shadow behavior in XPression if your SVG import path does not preserve those filters faithfully.',
+    '// 6. Verify fonts, raster assets, and final alignment against the Figma reference before delivery.',
+    '',
+    '// Generated binding template outline',
     'const banner = {',
     ...dataLines,
     '};',
